@@ -8,22 +8,24 @@
 # yuv format is YUV420(planar). Output is horizontal mult of 32, vertical mult of 16
 # http://picamera.readthedocs.org/en/release-1.8/recipes2.html#unencoded-image-capture-yuv-format
 #
-# by John Beale  22 Sept 2014
+# by John Beale  Sept.25 2014
 
 import io, picamera, datetime, time
 import numpy as np
 
-preMotionBuffer = 1 # record this many seconds before motion starts
+preMotionBuffer = 4 # record this many seconds before motion starts
 postMotionDelay = 2 # record this many seconds after motion ends
-#cxres = 1920 # initial vertical camera resolution
-#cyres = 1080 # initial horizontal camera resolution
-cxres = 1280 # initial vertical camera resolution
-cyres = 720 # initial horizontal camera resolution
-xsize = 64 # YUV matrix output horizontal size will be multiple of 32
-ysize = 32 # YUV matrix output vertical size will be multiple of 16
+videoFPS = 6  # record video at this frame rate
+videoDir = "/mnt/video1/" # directory to record video files
+cxres = 1920 # initial vertical camera resolution
+cyres = 1080 # initial horizontal camera resolution
+#cxres = 1280 # initial vertical camera resolution
+#cyres = 720 # initial horizontal camera resolution
+xsize = 32 # YUV matrix output horizontal size will be multiple of 32
+ysize = 16 # YUV matrix output vertical size will be multiple of 16
 mThresh = 20.0 # pixel brightness change threshold that means motion
-tFactor = 1.6  # threshold above max.average diff per frame, for motion detect
-pcThresh = 5  # total number of changed elements which add up to "motion"
+tFactor = 1.8  # threshold above max.average diff per frame, for motion detect
+pcThresh = 9  # total number of changed elements which add up to "motion"
 logfile = "/home/pi/logs/PiMotion_log.csv"  # where to save log of motion detections
 logHoldoff = 1 # don't log another motion event until this many seconds after previous event
 
@@ -152,7 +154,7 @@ def write_video(stream):
     # simultaneously
     global eventTime
 
-    fName = eventTime + "_0.h264"  # filename of "before-event" video from buffer
+    fName = videoDir + eventTime + "_0.h264"  # filename of "before-event" video from buffer
     with io.open(fName, 'wb') as output:
         for frame in stream.frames:
             if frame.frame_type == picamera.PiVideoFrameType.sps_header:
@@ -185,8 +187,8 @@ with picamera.PiCamera() as camera:
 
     initMaps() # set up pixelmap arrays
     camera.resolution = (cxres, cyres)
-    camera.framerate = 25
-    camera.exposure_compensation = -20   # -25 to +25, larger numbers are brighter
+    camera.framerate = videoFPS 
+    # camera.exposure_compensation = -20   # -25 to +25, larger numbers are brighter
     camera.annotate_background = True
     camera.annotate_text = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     # camera.start_preview()  # turn on camera
@@ -205,7 +207,7 @@ with picamera.PiCamera() as camera:
                 eventTime = datetime.datetime.now().strftime("%y%m%d-%H_%M_%S")
 #                eventTime = datetime.datetime.now().strftime("%y%m%d-%H_%M_%S.%f") # need microseconds?
                 print(eventTime + ' Motion detected!')
-                fName =  eventTime + "_1.h264" # filename for 'after' motion part of video
+                fName =  videoDir + eventTime + "_1.h264" # filename for 'after' motion part of video
                 camera.split_recording(fName) # 'after' motion H264 file
                 # Write the buffered "before" motion to disk as well
                 write_video(stream)
