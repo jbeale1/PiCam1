@@ -5,28 +5,29 @@
 # Based on my motion code from http://pastebin.com/1yTxtgwz  and Dave Hughes' Picamera example
 # http://picamera.readthedocs.org/en/release-1.8/recipes2.html#splitting-to-from-a-circular-stream
 #
-# yuv format is YUV420(planar). Output is horizontal mult of 32, vertical mult of 16
-# http://picamera.readthedocs.org/en/release-1.8/recipes2.html#unencoded-image-capture-yuv-format
-#
 # by John Beale  Sept.25 2014
+
 
 import io, picamera, datetime, time
 import numpy as np
 
 preMotionBuffer = 4 # record this many seconds before motion starts
 postMotionDelay = 2 # record this many seconds after motion ends
-videoFPS = 6  # record video at this frame rate
 videoDir = "/mnt/video1/" # directory to record video files
+logfile = "/home/pi/logs/PiMotion_log.csv"  # where to save log of motion detections
+
+videoFPS = 6  # record video at this frame rate
 cxres = 1920 # initial vertical camera resolution
 cyres = 1080 # initial horizontal camera resolution
 #cxres = 1280 # initial vertical camera resolution
 #cyres = 720 # initial horizontal camera resolution
+
+# xsize and ysize are used in the internal motion algorithm, not in the video output
 xsize = 32 # YUV matrix output horizontal size will be multiple of 32
 ysize = 16 # YUV matrix output vertical size will be multiple of 16
 mThresh = 20.0 # pixel brightness change threshold that means motion
 tFactor = 1.8  # threshold above max.average diff per frame, for motion detect
 pcThresh = 9  # total number of changed elements which add up to "motion"
-logfile = "/home/pi/logs/PiMotion_log.csv"  # where to save log of motion detections
 logHoldoff = 1 # don't log another motion event until this many seconds after previous event
 
 avgmax = 3     # long-term average of maximum-pixel-change-value
@@ -72,6 +73,14 @@ def updateTS(camera, delay = 0):
         camera.annotate_text = datetime.datetime.now().strftime('  %Y-%m-%d %H:%M:%S  ')
       tcount = tcount - 0.2
       time.sleep(0.2)
+
+# Note to self:
+# yuv format is YUV420(planar). Output is horizontal mult of 32, vertical mult of 16
+# http://picamera.readthedocs.org/en/release-1.8/recipes2.html#unencoded-image-capture-yuv-format
+#
+
+# detect_motion() is where the low-res version of the image is compared with an average of
+# past images to detect motion.
 
 def detect_motion(camera):
     global running # true if algorithm has passed through initial startup settling
