@@ -27,6 +27,8 @@ pcThresh = 15  # total number of changed elements which add up to "motion"
 logHoldoff = 0.4 # don't log another motion event until this many seconds after previous event
 
 avgmax = 3     # long-term average of maximum-pixel-change-value
+stg = 15       # groupsize for rolling statistics
+
 running = False  # whether we have done our initial average-settling time
 pixvalScaleFactor = 65535/255.0  # multiply single-byte values by this factor
 frac = 0.2  # fraction by which to update long-term average on each pass
@@ -125,8 +127,8 @@ def detect_motion(camera):
     global sqsum # (matrix) rolling average sum of squared pixvals
     global stdev # (matrix) rolling average standard deviation of pixels
 
-    stg = 30.0 # statistics (rolling standard-deviation) averaging group size (sort of)
-    sti = 1.0 - (1.0/stg) # 1 - inverse of statistics groupsize
+    sti = (1.0/stg) # inverse of statistics groupsize
+    sti1 = 1.0 - sti # 1 - inverse of statistics groupsize
      
 
     # updateTS(camera)
@@ -142,8 +144,8 @@ def detect_motion(camera):
 
 # each stsum element on order of 1E6
 # each sqsum element on order of  3E10
-    stsum = (stsum * sti) + newmap           # rolling sum of most recent 'stg' images (approximately)
-    sqsum = (sqsum * sti) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
+    stsum = (stsum * sti1) + newmap           # rolling sum of most recent 'stg' images (approximately)
+    sqsum = (sqsum * sti1) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
     devsq = (stg * sqsum) - np.power(stsum, 2)  
     stdev = (1.0/10) * np.power(devsq, 0.5)    # matrix holding rolling-average element-wise std.deviation
 
