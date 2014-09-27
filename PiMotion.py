@@ -11,12 +11,12 @@
 import io, picamera, datetime, time
 import numpy as np
 
-preMotionBuffer = 4 # record this many seconds before motion starts
+preMotionBuffer = 6 # record this many seconds before motion starts
 postMotionDelay = 2 # record this many seconds after motion ends
 videoDir = "/mnt/video1/" # directory to record video files
 logfile = "/home/pi/logs/PiMotion_log.csv"  # where to save log of motion detections
 
-videoFPS = 6  # record video at this frame rate
+videoFPS = 4  # record video at this frame rate
 cxres = 1920 # initial vertical camera resolution
 cyres = 1080 # initial horizontal camera resolution
 #cxres = 1280 # initial vertical camera resolution
@@ -200,6 +200,7 @@ with picamera.PiCamera() as camera:
     # camera.exposure_compensation = -20   # -25 to +25, larger numbers are brighter
     camera.annotate_background = True
     camera.annotate_text = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    camera.exposure = "night"
     # camera.start_preview()  # turn on camera
     # updateTS(camera, 3) # allow autoexposure to settle after initial powerup
     stream = picamera.PiCameraCircularIO(camera, seconds=preMotionBuffer) # actual buffer longer than this?
