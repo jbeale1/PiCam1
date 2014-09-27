@@ -15,9 +15,10 @@ videoDir = "/mnt/video1/" # directory to record video files
 #videoDir = "./" # directory to record video files 
 picDir = "/mnt/video1/" # directory to record still images
 logfile = "/home/pi/logs/RecSeq_log.csv" # where to save log of motion detections
-recFPS = 12  # how many frames per second to record
+recFPS = 8  # how many frames per second to record
 cxsize = 1920 # camera video X size
 cysize = 1080 # camera video Y size
+segTime = 3600 # how many seconds long each video file should be
 # xsize and ysize are used in the internal motion algorithm, not in the video output
 xsize = 64 # YUV matrix output horizontal size will be multiple of 32
 ysize = 32 # YUV matrix output vertical size will be multiple of 16
@@ -31,6 +32,7 @@ logHoldoff = 0.4 # don't log another motion event until this many seconds after 
 avgmax = 3     # long-term average of maximum-pixel-change-value
 stg = 10       # groupsize for rolling statistics
 
+timeMin = 1.0/6  # minimum time between motion computation (seconds)
 running = False  # whether we have done our initial average-settling time
 initPass = 5     # how many initial passes to do
 pixvalScaleFactor = 65535/255.0  # multiply single-byte values by this factor
@@ -47,6 +49,10 @@ zx = 0.0  # normalized horizontal image offset
 zy = 0.0 # normalized vertical image offset (0 = top of frame)
 zw = 1.0 # normalized horizontal scale factor (1.0 = full size)
 zh = 0.5 # normalized vertical scale factor (1.0 = full size)
+
+# --------------------------------------------------
+sti = (1.0/stg) # inverse of statistics groupsize
+sti1 = 1.0 - sti # 1 - inverse of statistics groupsize
 
 # --------------------------------------------------
 def date_gen():
@@ -137,9 +143,14 @@ def detect_motion(camera):
     global stdev # (matrix) rolling average standard deviation of pixels
     global initPass # how many initial passes we're doing
 
-    sti = (1.0/stg) # inverse of statistics groupsize
-    sti1 = 1.0 - sti # 1 - inverse of statistics groupsize
      
+    newTime = time.time()
+    elapsedTime = newTime - lastTime
+    if (elapsedTime < timeMin):  # don't recompute motion data too rapidly
+      time.sleep(timeMin - elapsedTime)
+
+    lastTime = newTime
+    fps = int(1/elapsedTime)
 
     # updateTS(camera)
 
@@ -189,11 +200,6 @@ def detect_motion(camera):
     countPixels = changedPixels.size
 
     novel = novel - novMin  # force minimum to zero
-
-    newTime = time.time()
-    elapsedTime = newTime - lastTime
-    lastTime = newTime
-    fps = int(1/elapsedTime)
 
     if (countPixels > pcThresh) and (novMax > novMaxThresh):  # found enough changed pixels to qualify as motion?
       gotMotion = True
@@ -273,8 +279,8 @@ with picamera.PiCamera() as camera:
     camera.zoom = (zx, zy, zw, zh) # set image offset and scale factor (default 0,0,1,1 )
     camera.exposure_mode = 'night'
 #    for filename in camera.record_sequence( date_gen(), format='h264', resize=(1920, 720), bitrate=4000000 ):
-    for filename in camera.record_sequence( date_gen(), format='h264', resize=(1280,720)):
-        waitTime = 60-(time.time()%60)
+    for filename in camera.record_sequence( date_gen(), format='h264', resize=(1920,540)):
+        waitTime = segTime-(time.time()%segTime)
         print("Recording for %d to %s" % (waitTime,filename))
         # camera.wait_recording(waitTime)
         updateTS1(camera, waitTime)
