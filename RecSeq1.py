@@ -19,21 +19,24 @@ recFPS = 12  # how many frames per second to record
 cxsize = 1920 # camera video X size
 cysize = 1080 # camera video Y size
 # xsize and ysize are used in the internal motion algorithm, not in the video output
-xsize = 128 # YUV matrix output horizontal size will be multiple of 32
-ysize = 64 # YUV matrix output vertical size will be multiple of 16
-mThresh = 20.0 # pixel brightness change threshold that means motion
-tFactor = 2.5  # threshold above max.average diff per frame, for motion detect
-pcThresh = 15  # total number of changed elements which add up to "motion"
+xsize = 64 # YUV matrix output horizontal size will be multiple of 32
+ysize = 32 # YUV matrix output vertical size will be multiple of 16
+# mThresh = 20.0 # pixel brightness change threshold that means motion
+dFactor = 3.0  # how many sigma above st.dev for diff to mean  motion pixel
+pcThresh = 30  # total number of changed elements which add up to "motion"
+novMaxThresh = 200 # peak "novel" pixmap value required to qualify "motion event"
+
 logHoldoff = 0.4 # don't log another motion event until this many seconds after previous event
 
 avgmax = 3     # long-term average of maximum-pixel-change-value
-stg = 15       # groupsize for rolling statistics
+stg = 10       # groupsize for rolling statistics
 
 running = False  # whether we have done our initial average-settling time
+initPass = 5     # how many initial passes to do
 pixvalScaleFactor = 65535/255.0  # multiply single-byte values by this factor
 frac = 0.2  # fraction by which to update long-term average on each pass
 frames = 0 # how many frames we've looked at for motion
-fupdate = 10   # report debug data every this many frames
+fupdate = 1   # report debug data every this many frames
 gotMotion = False # true when motion has been detected
 debug = True # should we report debug data (pixmap dump to PNG files)
 showStatus = True # if we should print status data every pass
@@ -53,8 +56,8 @@ def date_gen():
 
 # initMaps(): initialize pixel maps with correct size and data type
 def initMaps():
-    global avgmap, newmap, difmap, avgdif, tStart, lastTime, stsum, sqsum, stdev
-    avgmap = np.zeros((ysize,xsize),dtype=np.float32) # average background image
+    global newmap, difmap, avgdif, tStart, lastTime, stsum, sqsum, stdev
+    # avgmap = np.zeros((ysize,xsize),dtype=np.float32) # average background image
     newmap = np.zeros((ysize,xsize),dtype=np.float32) # new image
     difmap = np.zeros((ysize,xsize),dtype=np.float32) # difference between new & avg
     stsum  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average sum of pix values
@@ -80,7 +83,7 @@ def saveFrame(camera):
 
 # updateTS(): update video timestamp with current time, and '*' if motion detected
 # the optional second argument specifies a delay in seconds, meanwhile time keeps updating
-def updateTS1(camera, delay = 0):
+def updateTS1old(camera, delay = 0):
     tcount = np.float32(delay)  # remaining time as a float
     if gotMotion:
       camera.annotate_text = datetime.now().strftime('* %Y-%m-%d %H:%M:%S *')
@@ -96,15 +99,21 @@ def updateTS1(camera, delay = 0):
       tcount = tcount - 0.1
       # time.sleep(0.1)  # enough delay from motion detect alg.
 
+def updateTS1(camera, delay = 0):
+    tcount = np.float32(delay)  # remaining time as a float
+    while tcount > 0:
+      detect_motion(camera)   # run the motion-detect algorithm
+      tcount = tcount - 0.1
+
 
 # updateTS(): update video timestamp with current time
 # the optional second argument specifies a delay in seconds, meanwhile time keeps updating
 def updateTS(camera, delay = 0):
     tcount = float(delay)  # remaining time as a float
-    camera.annotate_text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    # camera.annotate_text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     while tcount > 0:
       #print("%5.3f " % tcount)
-      camera.annotate_text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+      # camera.annotate_text = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
       tcount = tcount - 0.25
       time.sleep(0.249)
 
@@ -116,7 +125,7 @@ def updateTS(camera, delay = 0):
 def detect_motion(camera):
     global running # true if algorithm has passed through initial startup settling
     global xsize, ysize  # dimensions of pixmap for motion calculations
-    global avgmap, newmap, avgdif # pixmap data arrays
+    global newmap, avgdif # pixmap data arrays
     global avgmax # (scalar) running average of maximum magnitude of pixel change
     global frames  # how many frames we've examined for motion
     global gotMotion # boolean True if motion has been detected
@@ -126,6 +135,7 @@ def detect_motion(camera):
     global stsum # (matrix) rolling average sum of pixvals
     global sqsum # (matrix) rolling average sum of squared pixvals
     global stdev # (matrix) rolling average standard deviation of pixels
+    global initPass # how many initial passes we're doing
 
     sti = (1.0/stg) # inverse of statistics groupsize
     sti1 = 1.0 - sti # 1 - inverse of statistics groupsize
@@ -134,43 +144,64 @@ def detect_motion(camera):
     # updateTS(camera)
 
     newmap = pixvalScaleFactor * getFrame(camera)  # current pixmap
-    difmap = newmap - avgmap                       # difference pixmap (amount of per-pixel change)
+    if not running:  # first time ever through this function?
+      stsum = stg * newmap         # call the sum over 'stg' elements just stg * initial frame
+      sqsum = stg * np.power(newmap, 2) # initialze sum of squares
+      running = True                    # ok, now we're running
+      return False
+
+						   # avgmap = [stsum] / stg
+    difmap = newmap - np.divide(stsum, stg)        # difference pixmap (amount of per-pixel change)
     max = np.amax(difmap)			   # largest increase in brightness over average
     min = np.amin(difmap)                          # largest decrease in brightness
     pkDif = int((max - min)*100)                   # peak amplitude of change across pixmap
-    avgmap = (avgmap * (1.0-frac)) + (newmap * frac)  # low-pass filter to form average pixmap
+    # avgmap = (avgmap * (1.0-frac)) + (newmap * frac)  # low-pass filter to form average pixmap
     difmap = abs(difmap)                 # take absolute value (brightness may increase or decrease)
     maxmag = np.amax(difmap)               # peak magnitude of change
 
-# each stsum element on order of 1E6
-# each sqsum element on order of  3E10
+# stdev ~8000, difmap ~500 for 32x16 matrix, pixvalScaleFactor = 100/255, stg = 15
+
     stsum = (stsum * sti1) + newmap           # rolling sum of most recent 'stg' images (approximately)
     sqsum = (sqsum * sti1) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
-    devsq = (stg * sqsum) - np.power(stsum, 2)  
-    stdev = (1.0/10) * np.power(devsq, 0.5)    # matrix holding rolling-average element-wise std.deviation
+    devsq = 0.1 + (stg * sqsum) - np.power(stsum, 2)  # variance, had better not be negative
+    stdev = (1.0/stg) * np.power(devsq, 0.5)    # matrix holding rolling-average element-wise std.deviation
+    novel = difmap - (dFactor * stdev)   # novel pixels have difference exceeding (dFactor * standard.deviation)
 
-    avgdif = np.int32(((1 - frac)*avgdif) + (frac * 100 * difmap))  # long-term average difference
-    pkAvgDif = np.amax(avgdif)           # largest value in long-term average difference
-    avgmax = ((1 - frac)*avgmax) + (maxmag * frac)  # (scalar) averaged peak magnitude pixel change
+    novMax = np.amax(novel)
+    novMin = np.amin(novel)
+
+    dAvg = np.average(difmap)  # average of all elements of array (pixmap)
+    sAvg = np.average(stdev)
+
+    if initPass > 0:             # are we still initializing array averages?
+      initPass = initPass - 1
+      return False
+
+    #avgdif = np.int32(((1 - frac)*avgdif) + (frac * 100 * difmap))  # long-term average difference
+    #pkAvgDif = np.amax(avgdif)           # largest value in long-term average difference
+    #avgmax = ((1 - frac)*avgmax) + (maxmag * frac)  # (scalar) averaged peak magnitude pixel change
 
     # tFactor = 2  # threshold above max.average diff per frame for motion detect
 
-    aThresh = tFactor * avgmax  # adaptive amplitude-of-change threshold
-    condition = difmap > aThresh  # boolean array of pixels exceeding threshold 'aThresh'
-    changedPixels = np.extract(condition, difmap)
+    #aThresh = tFactor * avgmax  # adaptive amplitude-of-change threshold
+    condition = novel > 0  # boolean array of pixels showing positive 'novelty'
+    changedPixels = np.extract(condition, novel)
     countPixels = changedPixels.size
+
+    novel = novel - novMin  # force minimum to zero
 
     newTime = time.time()
     elapsedTime = newTime - lastTime
     lastTime = newTime
     fps = int(1/elapsedTime)
 
-    if (countPixels > pcThresh):  # found enough changed pixels to qualify as motion?
+    if (countPixels > pcThresh) and (novMax > novMaxThresh):  # found enough changed pixels to qualify as motion?
       gotMotion = True
       # updateTS(camera)  # flag moment of detected motion in timestamp
       # print gotMotion, frames, pkDif, fps
     else:
       gotMotion = False
+
 
     if showStatus:  # print debug info
 #      print gotMotion, frames, min, max, pkDif, pkAvgDif, avgmax, countPixels, fps	
@@ -194,21 +225,25 @@ def detect_motion(camera):
 
     frames = frames + 1
     if (((frames % fupdate) == 0) and debug):
-        print ("%s,  %03d max = %5.3f, avg = %5.3f" % (str(datetime.now()),frames,max,avgmax))
-        print ("%d %f %d %f" % (gotMotion, pkDif, countPixels, fps))
+        # print ("%s,  %03d max = %5.3f, avg = %5.3f" % (str(datetime.now()),frames,max,avgmax))
+        print ("%5.2fd cPx:%d nM:%5.1f d:%5.2f s:%5.2f fps=%3.0f" %\
+               (gotMotion, countPixels, novMax, dAvg, sAvg, fps))
 	fstr = '%04d' % (frames)  # convert integer to formatted string with leading zeros
         
-	np.set_printoptions(precision=2)
+	np.set_printoptions(precision=1)
+	# print(difmap)
+
 	# print(sqsum) # show all elements of array 
 	# print(stdev) # show all elements of array 
+
 #        img = Image.fromarray(stsum.astype(int))
 #        avgMapName = "A" + fstr + ".png"
 #	img.save(avgMapName)
-        img = Image.fromarray(stdev.astype(int))
-        dMapName = "STD" + fstr + ".png"
-	img.save(dMapName)
-        # print avgdif
-        # print np.int32(avgmap)
+
+#        img = Image.fromarray(novel.astype(int))
+#        dMapName = "A" + fstr + ".png"
+#	img.save(dMapName)
+
 
     # running = False  # DEBUG never admit to a motion detection
     if running:
@@ -221,7 +256,7 @@ def detect_motion(camera):
 with picamera.PiCamera() as camera:
     # global avgmap   # average pixelmap values
 
-    np.set_printoptions(precision=2)
+    np.set_printoptions(precision=1)
     daytime = datetime.now().strftime("%y%m%d-%H_%M_%S")
     f = open(logfile, 'a')
     f.write ("# RecSeq log v0.1 Sept. 26 2014 J.Beale\n")
