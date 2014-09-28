@@ -3,7 +3,7 @@
 # Record a set of time-stamped video files from RPi camera
 # At the same time, do motion detection and generate log of motion events
 # Saving stills when motion is detected is possible, but interrupts the video.
-# J.Beale  v0.2 27 Sept 2014
+# J.Beale  v0.21 28 Sept 2014
 
 from __future__ import print_function
 from datetime import datetime
@@ -19,6 +19,7 @@ recFPS = 8  # how many frames per second to record
 cxsize = 1920 # camera video X size
 cysize = 1080 # camera video Y size
 segTime = 3600 # how many seconds long each video file should be 
+showFrameNum = True # set 'True' if each frame number should be drawn on video
 
 # xsize and ysize are used in the internal motion algorithm, not in the .h264 video output
 xsize = 64 # YUV matrix output horizontal size will be multiple of 32
@@ -219,7 +220,7 @@ with picamera.PiCamera() as camera:
     np.set_printoptions(precision=1)
     daytime = datetime.now().strftime("%y%m%d_%H:%M:%S")
     f = open(logfile, 'a')
-    f.write ("# RecSeq log v0.2 Sept. 27 2014 J.Beale\n")
+    f.write ("# RecSeq log v0.21 Sept. 28 2014 J.Beale\n")
     outbuf = "# Start: " + daytime  + "\n"
     f.write (outbuf)
     f.flush()
@@ -229,6 +230,7 @@ with picamera.PiCamera() as camera:
 #    camera.resolution = camera.MAX_RESOLUTION  # sensor res = 2592 x 1944
     camera.resolution = (cxsize, cysize)
     camera.framerate = recFPS  # how many frames per second to record
+    camera.annotate_frame_num = showFrameNum # set 'True' if we should show the frame number on the video
     camera.annotate_background = True # black rectangle behind white text for readibility
     camera.zoom = (zx, zy, zw, zh) # set image offset and scale factor (default 0,0,1,1 )
     camera.exposure_mode = 'night'
