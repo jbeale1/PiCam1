@@ -40,15 +40,17 @@ frac = 0.2  # fraction by which to update long-term average on each pass
 frames = 0 # how many frames we've looked at for motion
 fupdate = 1   # report debug data every this many frames
 gotMotion = False # true when motion has been detected
-debug = True # should we report debug data (pixmap dump to PNG files)
+debug = False # should we report debug data (pixmap dump to PNG files)
 showStatus = True # if we should print status data every pass
-#showStatus = False
+showStatus = False
 
 zx = 0.0  # normalized horizontal image offset
 #zy = 0.5 # normalized vertical image offset (0 = top of frame)
 zy = 0.0 # normalized vertical image offset (0 = top of frame)
 zw = 1.0 # normalized horizontal scale factor (1.0 = full size)
 zh = 0.5 # normalized vertical scale factor (1.0 = full size)
+resX = 1920  # rescaled X resolution (video / still)
+resY = 540  # rescaled Y resolutio (video / still)
 
 # --------------------------------------------------
 sti = (1.0/stg) # inverse of statistics groupsize
@@ -232,8 +234,8 @@ def detect_motion(camera):
     frames = frames + 1
     if (((frames % fupdate) == 0) and debug):
         # print ("%s,  %03d max = %5.3f, avg = %5.3f" % (str(datetime.now()),frames,max,avgmax))
-        print ("%5.2fd cPx:%d nM:%5.1f d:%5.2f s:%5.2f fps=%3.0f" %\
-               (gotMotion, countPixels, novMax, dAvg, sAvg, fps))
+        print ("cPx:%d nM:%5.1f d:%5.2f s:%5.2f fps=%3.0f" %\
+               (countPixels, novMax, dAvg, sAvg, fps))
 	fstr = '%04d' % (frames)  # convert integer to formatted string with leading zeros
         
 	np.set_printoptions(precision=1)
@@ -279,7 +281,7 @@ with picamera.PiCamera() as camera:
     camera.zoom = (zx, zy, zw, zh) # set image offset and scale factor (default 0,0,1,1 )
     camera.exposure_mode = 'night'
 #    for filename in camera.record_sequence( date_gen(), format='h264', resize=(1920, 720), bitrate=4000000 ):
-    for filename in camera.record_sequence( date_gen(), format='h264', resize=(1920,540)):
+    for filename in camera.record_sequence( date_gen(), format='h264', resize=(resX, resY)):
         waitTime = segTime-(time.time()%segTime)
         print("Recording for %d to %s" % (waitTime,filename))
         # camera.wait_recording(waitTime)
