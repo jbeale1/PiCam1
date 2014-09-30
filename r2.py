@@ -2,8 +2,11 @@
 
 # Record a set of time-stamped video files from RPi camera
 # At the same time, do motion detection and generate log of motion events
-# Saving stills when motion is detected is possible, but interrupts the video.
-# J.Beale  v0.21 28 Sept 2014
+# Saving stills when motion is detected is possible.
+#  Known bug: timeMin needs to be adjusted relative to recording rate (recFPS) to avoid problems
+#  time annotate update, and motion-detect should be synchronized to camera frame update; but are not.
+ 
+# J.Beale  v0.22 30 Sept 2014
 
 from __future__ import print_function
 from datetime import datetime
@@ -12,28 +15,31 @@ import numpy as np
 from PIL import Image  # for converting array back to a JPEG for export (debug only)
 
 # --------------------------------------------------
+VERSION = "PiMotion v0.22 30-Sept-2014 J.Beale"
+
 videoDir = "/mnt/video1/" # directory to record video files 
-picDir = "./" # directory to record still images
+picDir = "/mnt/video1/events/" # directory to record still images
 logfile = "/mnt/video1/logs/RecSeq_log.csv" # where to save log of motion detections
 recFPS = 8  # how many frames per second to record
 cxsize = 1920 # camera video X size
 cysize = 1080 # camera video Y size
 segTime = 3600 # how many seconds long each video file should be 
-showFrameNum = True # set 'True' if each frame number should be drawn on video
+saveStills = True # if we should save still frames when motion is detected
+showFrameNum = False # set 'True' if each frame number should be drawn on video
 
 # xsize and ysize are used in the internal motion algorithm, not in the .h264 video output
 xsize = 64 # YUV matrix output horizontal size will be multiple of 32
 ysize = 32 # YUV matrix output vertical size will be multiple of 16
 dFactor = 3.0  # how many sigma above st.dev for diff value to qualify as motion pixel
-pcThresh = 30  # total number of changed elements which add up to "motion"
+pcThresh = 65  # total number of changed elements which add up to "motion"
 novMaxThresh = 200 # peak "novel" pixmap value required to qualify "motion event"
 
 logHoldoff = 0.4 # don't log another motion event until this many seconds after previous event
 
 avgmax = 3     # long-term average of maximum-pixel-change-value
-stg = 10       # groupsize for rolling statistics
+stg = 30       # groupsize for rolling statistics
 
-timeMin = 1.0/6  # minimum time between motion computation (seconds)
+timeMin = 0.24  # minimum time between motion computation (seconds)
 running = False  # whether we have done our initial average-settling time
 initPass = 5     # how many initial passes to do
 pixvalScaleFactor = 65535/255.0  # multiply single-byte values by this factor
@@ -102,9 +108,9 @@ def updateTS1(camera, delay = 0):
     tString = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
     tString = tString[:-3]  # remove XXX microseconds, leaving milliseconds
     if gotMotion:
-      camera.annotate_text = '* ' + tString + ' *' + str(frameIndex)
+      camera.annotate_text = '* ' + tString + ' * ' + motionIndex
     else:
-      camera.annotate_text = '  ' + tString + '  ' + str(frameIndex)
+      camera.annotate_text = tString 
     tElapsed = time.time() - tStart  # seconds since this function started
     if (tElapsed >= delay): # quit when elapsed time reaches the delay requested
       break
@@ -129,7 +135,7 @@ def detect_motion(camera):
     global sqsum # (matrix) rolling average sum of squared pixvals
     global stdev # (matrix) rolling average standard deviation of pixels
     global initPass # how many initial passes we're doing
-
+    global motionIndex # string to write on video showing amount of motion
      
     newTime = time.time()
     elapsedTime = newTime - lastTime
@@ -172,8 +178,9 @@ def detect_motion(camera):
     condition = novel > 0  # boolean array of pixels showing positive 'novelty' value
     changedPixels = np.extract(condition, novel)
     countPixels = changedPixels.size  # how many pixels are considered unusual / novel in this frame
-
+    
     novel = novel - novMin  # force minimum to zero
+    motionIndex = ("%03d" % countPixels)  # string to annotate on video frame
 
     if (countPixels > pcThresh) and (novMax > novMaxThresh):  # found enough changed pixels to qualify as motion?
       gotMotion = True
@@ -189,10 +196,11 @@ def detect_motion(camera):
       if (tInterval > logHoldoff):  # only log when at least logHoldoff time has elapsed
         tStart = tNow
         daytime = datetime.now().strftime("%y%m%d_%H%M%S")
-	# saveFrame(camera)  # save a still image - unfortunately makes the video recording skip frames
+        if saveStills:
+	  saveFrame(camera)  # save a still image - may cause the video recording to skip frames
         tstr = ("%s,  dM:%4.1f, nM:%4.1f, dT:%6.3f, px:%d\n" % (daytime,magMax,novMax,tInterval,countPixels))
         f.write(tstr)
-        f.flush()
+        # f.flush()  # this command may cause video frames to be dropped (?)
 
       if showStatus:
         print("********************* MOTION **********************************")
@@ -227,10 +235,10 @@ with picamera.PiCamera() as camera:
     np.set_printoptions(precision=1)
     daytime = datetime.now().strftime("%y%m%d_%H:%M:%S")
     f = open(logfile, 'a')
-    f.write ("# RecSeq log v0.21 Sept. 28 2014 J.Beale\n")
+    f.write ("# Logfile %s\n" % VERSION)
     outbuf = "# Start: " + daytime  + "\n"
     f.write (outbuf)
-    f.flush()
+    f.flush()  # don't use flush() while video recording is running (?)
     print ("PiMotion starting at %s" % daytime)
 
     initMaps() # set up pixelmap arrays
