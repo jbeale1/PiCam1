@@ -37,7 +37,7 @@ novMaxThresh = 200 # peak "novel" pixmap value required to qualify "motion event
 logHoldoff = 0.4 # don't log another motion event until this many seconds after previous event
 
 avgmax = 3     # long-term average of maximum-pixel-change-value
-stg = 30       # groupsize for rolling statistics
+stg = 20       # groupsize for rolling statistics
 
 timeMin = 0.24  # minimum time between motion computation (seconds)
 running = False  # whether we have done our initial average-settling time
@@ -72,7 +72,7 @@ def date_gen():
 
 # initMaps(): initialize pixel maps with correct size and data type
 def initMaps():
-    global newmap, difmap, avgdif, tStart, lastTime, stsum, sqsum, stdev
+    global newmap, difmap, avgdif, mtStart, lastTime, stsum, sqsum, stdev
     newmap = np.zeros((ysize,xsize),dtype=np.float32) # new image
     difmap = np.zeros((ysize,xsize),dtype=np.float32) # difference between new & avg
     stsum  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average sum of pix values
@@ -80,8 +80,8 @@ def initMaps():
     stdev  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average standard deviation
     avgdif  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average difference
 
-    tStart = time.time()  # time that program starts
-    lastTime = tStart  # last time event detected
+    mtStart = time.time()  # time that program starts
+    lastTime = mtStart  # last time event detected
 
 # getFrame(): returns Y intensity pixelmap (xsize x ysize) as np.array type
 def getFrame(camera):
@@ -98,21 +98,45 @@ def saveFrame(camera):
     fname = picDir + daytime + ".jpg"
     camera.capture(fname, format='jpeg', use_video_port=True)
 
-
+# ======================================================================================
 # updateTS1(): update video timestamp with current time, and '*' if motion detected
 # the optional second argument specifies a delay in seconds, meanwhile time keeps updating
 def updateTS1(camera, delay = 0):
-  tStart = time.time() # actual value is raw seconds since Jan.1 1970
+  global mtStart  # start of motion event or restart since 'logHoldoff' timeout
+  global daytime  # to use in filename for motion event still
+
+  utStart = time.time() # when we enter this function. Actual value is raw seconds since Jan.1 1970
   while True: 
     detect_motion(camera) # one pass through the motion-detect algorithm
     tString = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
     tString = tString[:-3]  # remove XXX microseconds, leaving milliseconds
+	# put motionIndex on both sides of Time/Date so it doesn't move when centered
     if gotMotion:
-      camera.annotate_text = '* ' + tString + ' * ' + motionIndex
+      camera.annotate_text = motionIndex + ' ' + tString + ' ' + motionIndex
     else:
       camera.annotate_text = tString 
-    tElapsed = time.time() - tStart  # seconds since this function started
-    if (tElapsed >= delay): # quit when elapsed time reaches the delay requested
+    utElapsed = time.time() - utStart  # seconds since this function started
+
+    if gotMotion:
+      mtNow = time.time()
+      tInterval = mtNow - mtStart
+      if (tInterval > logHoldoff):  # only log when at least logHoldoff time has elapsed
+        mtStart = mtNow
+        daytime = datetime.now().strftime("%y%m%d_%H%M%S.%f")
+	daytime = daytime[:-5] # remove xxxxx microseconds, just leave 10ths of seconds
+        if saveStills:
+	  saveFrame(camera)  # save out a still image of the motion event
+        tstr = ("%s,  dM:%4.1f, nM:%4.1f, dT:%6.3f, px:%d\n" % (daytime,magMax,novMax,tInterval,countPixels))
+        f.write(tstr)
+        # f.flush()  # this command may cause video frames to be dropped (?)
+
+      if showStatus:
+        print("********************* MOTION **********************************")
+    else:
+      running = True  # 'running' set True after initial filter settles and "Motion-Detect" drops
+
+
+    if (utElapsed >= delay): # quit when elapsed time reaches the delay requested
       break
 
 # =============================================== 
@@ -128,14 +152,14 @@ def detect_motion(camera):
     global avgmax # (scalar) running average of maximum magnitude of pixel change
     global frames  # how many frames we've examined for motion
     global gotMotion # boolean True if motion has been detected
-    global tStart  # time of last event
     global lastTime # time this function was last run
-    global daytime # current time of day when motion event detected
     global stsum # (matrix) rolling average sum of pixvals
     global sqsum # (matrix) rolling average sum of squared pixvals
     global stdev # (matrix) rolling average standard deviation of pixels
     global initPass # how many initial passes we're doing
     global motionIndex # string to write on video showing amount of motion
+    global magMax, novMax # relative amount of motion
+    global countPixels # how many pixels changed
      
     newTime = time.time()
     elapsedTime = newTime - lastTime
@@ -189,23 +213,6 @@ def detect_motion(camera):
 
     if showStatus:  # print debug info
       print ("%d %f %d %f" % (gotMotion, magMax, countPixels, fps))
-
-    if gotMotion:
-      tNow = time.time()
-      tInterval = tNow - tStart
-      if (tInterval > logHoldoff):  # only log when at least logHoldoff time has elapsed
-        tStart = tNow
-        daytime = datetime.now().strftime("%y%m%d_%H%M%S")
-        if saveStills:
-	  saveFrame(camera)  # save a still image - may cause the video recording to skip frames
-        tstr = ("%s,  dM:%4.1f, nM:%4.1f, dT:%6.3f, px:%d\n" % (daytime,magMax,novMax,tInterval,countPixels))
-        f.write(tstr)
-        # f.flush()  # this command may cause video frames to be dropped (?)
-
-      if showStatus:
-        print("********************* MOTION **********************************")
-    else:
-      running = True  # 'running' set True after initial filter settles and "Motion-Detect" drops
 
     frames = frames + 1
     if (((frames % fupdate) == 0) and debug):
