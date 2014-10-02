@@ -1,5 +1,15 @@
 #!/usr/bin/python
 
+# Record video from Raspberry Pi camera in .h264 with in-frame text
+# showing time/date, and count emitted video frames using a custom output
+# which is called when buffers for each frame is ready. 
+
+# The output class may  be called more than once per frame,
+# if the picture data is larger than one buffer, \
+# so need to check if camera.frame.index has changed, and
+# also some buffers are not I/P image frames, so need to ignore those.
+# 02 October 2014  J.Beale
+
 from __future__ import print_function
 import io
 import picamera, time
