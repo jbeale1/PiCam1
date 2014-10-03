@@ -23,6 +23,8 @@ logfile = "/mnt/video1/logs/RecSeq_log.csv" # where to save log of motion detect
 recFPS = 8  # how many frames per second to record
 cxsize = 1920 # camera video X size
 cysize = 1080 # camera video Y size
+xStill = 1280 # saved JPEG X size (causes trouble if too large)
+yStill = 720 # saved JPEG Y size (causes trouble if too large)
 segTime = 3600 # how many seconds long each video file should be 
 saveStills = True # if we should save still frames when motion is detected
 showFrameNum = False # set 'True' if each frame number should be drawn on video
@@ -37,7 +39,7 @@ novMaxThresh = 200 # peak "novel" pixmap value required to qualify "motion event
 logHoldoff = 0.4 # don't log another motion event until this many seconds after previous event
 
 avgmax = 3     # long-term average of maximum-pixel-change-value
-stg = 20       # groupsize for rolling statistics
+stg = 10       # groupsize for rolling statistics
 
 timeMin = 0.24  # minimum time between motion computation (seconds)
 running = False  # whether we have done our initial average-settling time
@@ -96,7 +98,7 @@ def getFrame(camera):
 # saveFrame(): save a JPEG file
 def saveFrame(camera):
     fname = picDir + daytime + ".jpg"
-    camera.capture(fname, format='jpeg', use_video_port=True)
+    camera.capture(fname, format='jpeg', resize=(xStill,yStill), use_video_port=True)
 
 # ======================================================================================
 # updateTS1(): update video timestamp with current time, and '*' if motion detected
