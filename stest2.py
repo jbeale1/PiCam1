@@ -14,16 +14,105 @@ from __future__ import print_function
 import io
 import picamera, time
 from datetime import datetime  # for 'daytime' string
+import numpy as np  # for number-crunching on arrays
 
-global picDir
+global running  # have we done the initial array processing yet?
+global novMax   # value of maximum element of 'novel' array
 
-picDir = "/run/shm/"
-vidDir = "/run/shm/"
+picDir = "/run/shm/"   # where to store still frames
+#vidDir = "/mnt/video1/"   # where to store video files
+#vidDir = "/run/shm/"   # where to store video files
+vidDir = "/mnt/USB1/"   # where to store video files
+vidName = "foo.h264"  # name of video file
+tmpDir = "/run/shm/" # where to store YUV frame buffer
+runTime = 60 # how many seconds to run
+
+cXRes = 1920   # camera capture X resolution (video file res)
+cYRes = 1080    # camera capture Y resolution
+sampleRate = 4 # run motion algorithm every this many frames
+dFactor = 3.0  # how many sigma above st.dev for diff value to qualify as motion pixel
+stg = 20       # groupsize for rolling statistics
+# --------------------------------------------------
+sti = (1.0/stg) # inverse of statistics groupsize
+sti1 = 1.0 - sti # 1 - inverse of statistics groupsize
+
+
+running = False  # have we done the initial array processing yet?
+
+# --------------------------------------------------------------------------------------
+# xsize and ysize are used in the internal motion algorithm, not in the .h264 video output
+xsize = 32 # YUV matrix output horizontal size will be multiple of 32
+ysize = 16 # YUV matrix output vertical size will be multiple of 16
+pixvalScaleFactor = 65535/255.0  # multiply single-byte values by this factor
+
+# initMaps(): initialize pixel maps with correct size and data type
+def initMaps():
+    global newmap, difmap, avgdif, mtStart, lastTime, stsum, sqsum, stdev, novMax
+    newmap = np.zeros((ysize,xsize),dtype=np.float32) # new image
+    difmap = np.zeros((ysize,xsize),dtype=np.float32) # difference between new & avg
+    stsum  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average sum of pix values
+    sqsum  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average sum of squared pix values
+    stdev  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average standard deviation
+    avgdif  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average difference
+
+    novMax = 0   # haven't seen anything new yet, you betcha
+    mtStart = time.time()  # time that program starts
+    lastTime = mtStart  # last time event detected
 
 # saveFrame(): save a JPEG file
 def saveFrame(camera):
   fname = picDir + daytime + ".jpg"
   camera.capture(fname, format='jpeg', resize = (1280, 720), use_video_port=True)
+
+# getFrame(): returns Y intensity pixelmap (xsize x ysize) as np.array type
+def getFrame(camera):
+    global frameIndex  # some kind of index number, but maybe not the exact frame count
+
+    stream=open(tmpDir + 'picamtemp.dat','w+b')
+    camera.capture(stream, format='yuv', resize=(xsize,ysize), use_video_port=True)
+    frameIndex = camera.frame.index
+    stream.seek(0)
+    return np.fromfile(stream, dtype=np.uint8, count=xsize*ysize).reshape((ysize, xsize))
+  
+# processImage(): do some computations on low-res version of current image
+def processImage(camera):
+    global running  # have we done initial array processing yet?
+    global stsum # (matrix) rolling average sum of pixvals
+    global sqsum # (matrix) rolling average sum of squared pixvals
+    global stdev # (matrix) rolling average standard deviation of pixels
+    global initPass # how many initial passes we're doing
+    global novMax # peak value of 'novel' array => relative amount of motion
+    
+    newmap = pixvalScaleFactor * getFrame(camera)  # current pixmap  
+
+    if not running:  # first time ever through this function?
+      stsum = stg * newmap         # call the sum over 'stg' elements just stg * initial frame
+      sqsum = stg * np.power(newmap, 2) # initialze sum of squares
+      running = True                    # ok, now we're running
+      return False
+
+						   # avgmap = [stsum] / stg
+    difmap = newmap - np.divide(stsum, stg)        # difference pixmap (amount of per-pixel change)
+    difmap = abs(difmap)                 # take absolute value (brightness may increase or decrease)
+    magMax = np.amax(difmap)               # peak magnitude of change
+
+    stsum = (stsum * sti1) + newmap           # rolling sum of most recent 'stg' images (approximately)
+    sqsum = (sqsum * sti1) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
+    devsq = 0.1 + (stg * sqsum) - np.power(stsum, 2)  # variance, had better not be negative
+    stdev = (1.0/stg) * np.power(devsq, 0.5)    # matrix holding rolling-average element-wise std.deviation
+    novel = difmap - (dFactor * stdev)   # novel pixels have difference exceeding (dFactor * standard.deviation)
+
+    novMax = np.amax(novel)  # largest value in 'novel' array: greatest unusual brightness change 
+    novMin = np.amin(novel)  # smallest value; very close to zero unless recent big brightness change
+
+    dAvg = np.average(difmap)  # average of all elements of array (pixmap)
+    sAvg = np.average(stdev)
+
+# -- END processImage()   
+ 
+  
+# -------------------------------------------------------------------------
+# the 'write()' member of this class is called whenever a buffer of image data is ready
 
 class MyCustomOutput(object):
 
@@ -32,33 +121,46 @@ class MyCustomOutput(object):
         self._file = io.open(filename, 'wb')
 
     def write(self, buf):
-        global fnumOld
-        global daytime
-        global tStart
-	global tInterval
-	global lastFrac
-	global lastFrame
-	global trueFrameNumber
+      global fnumOld
+      global daytime
+      global tStart
+      global tInterval
+      global lastFrac
+      global lastFrame
+      global trueFrameNumber
+      global novInt
+      global firstTime  # True on the very first call, False all subsequent times
 
-	fnum = self.camera.frame.index
-	ftype = self.camera.frame.frame_type
-	if (fnum != fnumOld) and (ftype != 2):  # ignore continuation of a previous frame, and SPS headers
-	  trueFrameNumber = trueFrameNumber + 1
-          fnumOld = fnum
-          daytime = datetime.now().strftime("%H:%M:%S.%f")  
-          daytime = daytime[:-3] # lose the microseconds, leave milliseconds
-          self.camera.annotate_text = str(trueFrameNumber+2) + " " + daytime  # set the in-frame text to time/date
-	  tFrame = time.time()
-	  fps = 1.0 / (tFrame - lastFrame)
-	  print("%d, %d, %s ft:%d fps=%5.3f" % (trueFrameNumber, fnum, daytime, ftype, fps))
-	  lastFrame = tFrame
-	  tElapsed = tFrame - tStart  # seconds since program start
-	  outFrac = tElapsed / tInterval
-#	  if int(outFrac) != lastFrac:  # time for another image output?
-#            print("  PIC: %d %5.3f %s" % (fnum, outFrac, daytime))
-#	    lastFrac = int(outFrac)
-#            saveFrame(self.camera)
-        return self._file.write(buf)
+      if (firstTime == True):
+        tStart = time.time() # seconds since Jan.1 1970
+        firstTime = False    
+
+      fnum = self.camera.frame.index
+      ftype = self.camera.frame.frame_type
+      if (fnum != fnumOld) and (ftype != 2):  # ignore continuation of a previous frame, and SPS headers
+        
+        trueFrameNumber = trueFrameNumber + 1
+        fnumOld = fnum
+        daytime = datetime.now().strftime("%H:%M:%S.%f")  
+        daytime = daytime[:-3] # lose the microseconds, leave milliseconds
+        
+#        self.camera.annotate_text =  "   " + str(trueFrameNumber+2) + " " + daytime 
+        self.camera.annotate_text = ("%03d" % novInt) + " " + str(trueFrameNumber+2) + " " + daytime 
+	if ((trueFrameNumber % sampleRate) == 0):
+          processImage(self.camera)  # do the number-crunching
+
+	novInt = int(novMax)
+	if (novInt < 0):
+	  novInt = 0
+        # set the in-frame text to time/date
+        self.camera.annotate_text = ("%03d" % novInt) + " " + str(trueFrameNumber+2) + " " + daytime 
+        tFrame = time.time()
+        fps = 1.0 / (tFrame - lastFrame)
+        print("%d, %d, %s ft:%d nov: %4.1f fps=%4.2f" % (trueFrameNumber, fnum, daytime, ftype, novMax, fps))
+        lastFrame = tFrame
+        tElapsed = tFrame - tStart  # seconds since program start
+        outFrac = tElapsed / tInterval
+      return self._file.write(buf)
 
     def flush(self):
         self._file.flush()
@@ -66,6 +168,12 @@ class MyCustomOutput(object):
     def close(self):
         self._file.close()
 
+        
+# ===================================================
+# == MAIN program begins here ==
+
+
+initMaps() # set up pixelmap arrays
 
 with picamera.PiCamera() as camera:
     global fnumOld   # previous value of camera.frame.index
@@ -75,23 +183,30 @@ with picamera.PiCamera() as camera:
     global tInterval
     global lastFrame
     global trueFrameNumber
+    global novInt
+    global firstTime  # True on the very first call, False all subsequent times
 
-    trueFrameNumber = 0  # actual video image frame count, not just packets or whatnot
+    firstTime = True  # have not run yet    
+    novInt = 0  # integer version of peak 'novelty' value
+    trueFrameNumber = 1  # actual video image frame count, not just packets or whatnot
     lastFrac = 0
     fnumOld = -1
     tInterval = 2.0  # how many seconds between JPEG output
-    tStart = time.time() # seconds since Jan.1 1970
-    lastFrame = tStart
+#    tStart = time.time() # seconds since Jan.1 1970
+    lastFrame = time.time()
     daytime = datetime.now().strftime("%y%m%d_%H%M%S.%f")
-    daytime = "Start: " + daytime[:-3] # loose the microseconds, leave milliseconds
+    daytime = "Start: 1 " + daytime[:-3] # loose the microseconds, leave milliseconds
     print("%s" % daytime)
 
-    camera.resolution = (1920, 1080)
+    camera.resolution = (cXRes, cYRes)
     camera.framerate = 8
     camera.annotate_background = True # black rectangle behind white text for readibility
     camera.annotate_text = daytime
-    output = MyCustomOutput(camera, vidDir + 'foo.h264')
+    output = MyCustomOutput(camera, vidDir + vidName)
     camera.start_recording(output, format='h264')
-    camera.wait_recording(20)
+    camera.wait_recording(runTime)  # how many seconds to run
+    print("Now stopping...")
     camera.stop_recording()
+    print("Now closing...")
     output.close()
+    print("Now done.")
