@@ -187,7 +187,7 @@ def detect_motion(camera):
 
     stsum = (stsum * sti1) + newmap           # rolling sum of most recent 'stg' images (approximately)
     sqsum = (sqsum * sti1) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
-    devsq = 0.1 + (stg * sqsum) - np.power(stsum, 2)  # variance, had better not be negative
+    devsq = 1.0 + (stg * sqsum) - np.power(stsum, 2)  # variance, had better not be negative
     stdev = (1.0/stg) * np.power(devsq, 0.5)    # matrix holding rolling-average element-wise std.deviation
     novel = difmap - (dFactor * stdev)   # novel pixels have difference exceeding (dFactor * standard.deviation)
 
