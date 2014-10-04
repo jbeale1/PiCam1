@@ -23,11 +23,11 @@ global vPause   # true when we should stop grabbing frames
 picDir = "/run/shm/vid"   # where to store still frames
 #vidDir = "/mnt/video1/"   # where to store video files
 #vidDir = "/run/shm/"   # where to store video files
-vidDir = "/mnt/USB0/vid/"   # where to store video files
-vidName = "f1.h264"  # name of video file
+videoDir = "/mnt/USB0/vid/"   # where to store video files
+#vidName = "f1.h264"  # name of video file
 tmpDir = "/run/shm/" # where to store YUV frame buffer
 frameRate = 8   # how many frames per second to record in video
-runTime = 60 # how many seconds to run
+segTime = 28 # how many seconds long one video segment is
 
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
@@ -46,6 +46,14 @@ running = False  # have we done the initial array processing yet?
 xsize = 32 # YUV matrix output horizontal size will be multiple of 32
 ysize = 16 # YUV matrix output vertical size will be multiple of 16
 pixvalScaleFactor = 65535/255.0  # multiply single-byte values by this factor
+
+# --------------------------------------------------
+def date_gen(camera):
+  global thisfile
+  while True:
+    thisfile = videoDir + datetime.now().strftime("%y%m%d_%H%M%S") + ".h264"
+    yield MyCustomOutput(camera, thisfile)
+
 
 # initMaps(): initialize pixel maps with correct size and data type
 def initMaps():
@@ -134,6 +142,10 @@ class MyCustomOutput(object):
       global trueFrameNumber
       global iString
       global firstTime  # True on the very first call, False all subsequent times
+      global vPause # True => no motion detect
+      global okGo  # False when we should turn off motion detect
+      global nGOP  # how many (I,P,P,P...) H264 stream frame sets we have seen
+      global firstType2 # first buffer of 'type 2' in a row
 
       if (firstTime == True):
         tStart = time.time() # seconds since Jan.1 1970
@@ -141,6 +153,21 @@ class MyCustomOutput(object):
 
       fnum = self.camera.frame.index
       ftype = self.camera.frame.frame_type
+#      print("%d, ft:%d" % (fnum, ftype))
+      vPause = True   # DEBUG hold off all event-detect
+
+      if (ftype == 2):  # end of GOP?
+        if (okGo == False):
+          print("End GOP marker: %d" % nGOP)
+	  vPause = True
+	if (firstType2 == True):
+	  nGOP = nGOP + 1    # ok, first 'type 2' buffer => completed another GOP
+	  firstType2 = False
+      else:
+	firstType2 = True
+
+      if (ftype != 2) and (okGo == True):  # ok to re-enable event detection
+	vPause = False
       if (fnum != fnumOld) and (ftype != 2):  # ignore continuation of a previous frame, and SPS headers
         
         trueFrameNumber = trueFrameNumber + 1
@@ -192,9 +219,15 @@ with picamera.PiCamera() as camera:
     global iString
     global firstTime  # True on the very first call, False all subsequent times
     global vPause
-    
+    global okGo
+    global nGOP
+    global firstType2 # if this is a 'type 2' frame, is it the first one in a row?
+
+    nGOP = 0	      # have not yet encoded any H264 GOPs yet
+    okGo = True       # OK to grab frames
     vPause = False    # OK to grab frames
     firstTime = True  # have not run yet    
+    firstType2 = True # previous frame was not 'type 2'
     iString = " "  # no "event" flag yet
     trueFrameNumber = 1  # actual video image frame count, not just packets or whatnot
     lastFrac = 0
@@ -210,13 +243,20 @@ with picamera.PiCamera() as camera:
     camera.framerate = frameRate
     camera.annotate_background = True # black rectangle behind white text for readibility
     camera.annotate_text = daytime
-    output = MyCustomOutput(camera, vidDir + vidName)
-    camera.start_recording(output, format='h264')
-    camera.wait_recording(runTime)  # how many seconds to run
-    vPause = True  # stop accessing camera for YUV frames and still frames
-    print("Now stopping...")
-    time.sleep(2.0/frameRate)
+#    output = MyCustomOutput(camera, date_gen())
+#    camera.start_recording(output, format='h264')
+
+    for filename in camera.record_sequence( date_gen(camera), format='h264'):
+#      waitTime = segTime-(time.time()%segTime)
+      print("Recording for %d to %s" % (segTime,thisfile))
+      okGo = True # ok to start analyzing again
+      time.sleep(segTime)
+      # vPause = True  # stop accessing camera for YUV frames and still frames
+      okGo = False # signal to stop event detect (YUV frame grab)
+      print("stopping...")
+      time.sleep(2.0/frameRate)  # delay insures YUV / still captures done before camera shutdown
+
+#   as currently written, we never actually reach here    
     camera.stop_recording()
-    print("Now closing...")
     output.close()
     print("Now done.")
