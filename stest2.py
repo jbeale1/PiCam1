@@ -18,18 +18,20 @@ import numpy as np  # for number-crunching on arrays
 
 global running  # have we done the initial array processing yet?
 global novMax   # value of maximum element of 'novel' array
+global vPause   # true when we should stop grabbing frames
 
-picDir = "/run/shm/"   # where to store still frames
+picDir = "/run/shm/vid"   # where to store still frames
 #vidDir = "/mnt/video1/"   # where to store video files
 #vidDir = "/run/shm/"   # where to store video files
-vidDir = "/mnt/USB1/"   # where to store video files
-vidName = "foo.h264"  # name of video file
+vidDir = "/mnt/USB0/vid/"   # where to store video files
+vidName = "f1.h264"  # name of video file
 tmpDir = "/run/shm/" # where to store YUV frame buffer
+frameRate = 8   # how many frames per second to record in video
 runTime = 60 # how many seconds to run
 
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
-sampleRate = 4 # run motion algorithm every this many frames
+sampleRate = 2 # run motion algorithm every this many frames
 dFactor = 3.0  # how many sigma above st.dev for diff value to qualify as motion pixel
 stg = 20       # groupsize for rolling statistics
 # --------------------------------------------------
@@ -61,8 +63,9 @@ def initMaps():
 
 # saveFrame(): save a JPEG file
 def saveFrame(camera):
-  fname = picDir + daytime + ".jpg"
-  camera.capture(fname, format='jpeg', resize = (1280, 720), use_video_port=True)
+  if (not vPause):
+    fname = picDir + daytime + ".jpg"
+    camera.capture(fname, format='jpeg', resize = (1280, 720), use_video_port=True)
 
 # getFrame(): returns Y intensity pixelmap (xsize x ysize) as np.array type
 def getFrame(camera):
@@ -99,7 +102,8 @@ def processImage(camera):
     stsum = (stsum * sti1) + newmap           # rolling sum of most recent 'stg' images (approximately)
     sqsum = (sqsum * sti1) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
     devsq = 0.1 + (stg * sqsum) - np.power(stsum, 2)  # variance, had better not be negative
-    stdev = (1.0/stg) * np.power(devsq, 0.5)    # matrix holding rolling-average element-wise std.deviation
+	# adding 1.0 * pixvalScaleFactor is just saying every pixel has at least one count of std.dev
+    stdev = pixvalScaleFactor + (1.0/stg) * np.power(devsq, 0.5)    # matrix holding rolling-average element-wise std.deviation
     novel = difmap - (dFactor * stdev)   # novel pixels have difference exceeding (dFactor * standard.deviation)
 
     novMax = np.amax(novel)  # largest value in 'novel' array: greatest unusual brightness change 
@@ -128,7 +132,7 @@ class MyCustomOutput(object):
       global lastFrac
       global lastFrame
       global trueFrameNumber
-      global novInt
+      global iString
       global firstTime  # True on the very first call, False all subsequent times
 
       if (firstTime == True):
@@ -144,16 +148,18 @@ class MyCustomOutput(object):
         daytime = datetime.now().strftime("%H:%M:%S.%f")  
         daytime = daytime[:-3] # lose the microseconds, leave milliseconds
         
-#        self.camera.annotate_text =  "   " + str(trueFrameNumber+2) + " " + daytime 
-        self.camera.annotate_text = ("%03d" % novInt) + " " + str(trueFrameNumber+2) + " " + daytime 
-	if ((trueFrameNumber % sampleRate) == 0):
+        self.camera.annotate_text = iString + str(trueFrameNumber+2) + " " + daytime 
+
+	if ((trueFrameNumber % sampleRate) == 0) and not vPause:
           processImage(self.camera)  # do the number-crunching
 
 	novInt = int(novMax)
 	if (novInt < 0):
-	  novInt = 0
+	  iString = "  "
+	else:
+	  iString = "* "
         # set the in-frame text to time/date
-        self.camera.annotate_text = ("%03d" % novInt) + " " + str(trueFrameNumber+2) + " " + daytime 
+        self.camera.annotate_text = iString + str(trueFrameNumber+2) + " " + daytime 
         tFrame = time.time()
         fps = 1.0 / (tFrame - lastFrame)
         print("%d, %d, %s ft:%d nov: %4.1f fps=%4.2f" % (trueFrameNumber, fnum, daytime, ftype, novMax, fps))
@@ -183,11 +189,13 @@ with picamera.PiCamera() as camera:
     global tInterval
     global lastFrame
     global trueFrameNumber
-    global novInt
+    global iString
     global firstTime  # True on the very first call, False all subsequent times
-
+    global vPause
+    
+    vPause = False    # OK to grab frames
     firstTime = True  # have not run yet    
-    novInt = 0  # integer version of peak 'novelty' value
+    iString = " "  # no "event" flag yet
     trueFrameNumber = 1  # actual video image frame count, not just packets or whatnot
     lastFrac = 0
     fnumOld = -1
@@ -199,13 +207,15 @@ with picamera.PiCamera() as camera:
     print("%s" % daytime)
 
     camera.resolution = (cXRes, cYRes)
-    camera.framerate = 8
+    camera.framerate = frameRate
     camera.annotate_background = True # black rectangle behind white text for readibility
     camera.annotate_text = daytime
     output = MyCustomOutput(camera, vidDir + vidName)
     camera.start_recording(output, format='h264')
     camera.wait_recording(runTime)  # how many seconds to run
+    vPause = True  # stop accessing camera for YUV frames and still frames
     print("Now stopping...")
+    time.sleep(2.0/frameRate)
     camera.stop_recording()
     print("Now closing...")
     output.close()
