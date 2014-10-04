@@ -19,15 +19,17 @@ import numpy as np  # for number-crunching on arrays
 global running  # have we done the initial array processing yet?
 global novMax   # value of maximum element of 'novel' array
 global vPause   # true when we should stop grabbing frames
+global nGOPs    # how many GOPs to record in one segment
 
 picDir = "/run/shm/vid"   # where to store still frames
-#vidDir = "/mnt/video1/"   # where to store video files
-#vidDir = "/run/shm/"   # where to store video files
 videoDir = "/mnt/USB0/vid/"   # where to store video files
-#vidName = "f1.h264"  # name of video file
 tmpDir = "/run/shm/" # where to store YUV frame buffer
 frameRate = 8   # how many frames per second to record in video
-segTime = 28 # how many seconds long one video segment is
+segTime = 29 # how many seconds long one video segment is
+sizeGOP = 60 # number of I+P frames in one GOP
+#nGOPs = 8  # (nGOPs * sizeGOP) frames will be in one H264 video segment
+nGOPs = 2  # (nGOPs * sizeGOP) frames will be in one H264 video segment
+
 
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
@@ -158,7 +160,7 @@ class MyCustomOutput(object):
 
       if (ftype == 2):  # end of GOP?
         if (okGo == False):
-          print("End GOP marker: %d" % nGOP)
+          # print("End GOP marker: %d" % nGOP)
 	  vPause = True
 	if (firstType2 == True):
 	  nGOP = nGOP + 1    # ok, first 'type 2' buffer => completed another GOP
@@ -189,7 +191,10 @@ class MyCustomOutput(object):
         self.camera.annotate_text = iString + str(trueFrameNumber+2) + " " + daytime 
         tFrame = time.time()
         fps = 1.0 / (tFrame - lastFrame)
-        print("%d, %d, %s ft:%d nov: %4.1f fps=%4.2f" % (trueFrameNumber, fnum, daytime, ftype, novMax, fps))
+#        print("%d, %d, %s ft:%d nov: %4.1f fps=%4.2f" % (trueFrameNumber, fnum, daytime, ftype, novMax, fps))
+	if ((trueFrameNumber + 2) % (nGOPs * sizeGOP)) == 0:
+#	  print("  Ending Soon... I frame in 2")
+	  okGo = False  # we are about to end this video segment; halt event processing
         lastFrame = tFrame
         tElapsed = tFrame - tStart  # seconds since program start
         outFrac = tElapsed / tInterval
@@ -219,7 +224,7 @@ with picamera.PiCamera() as camera:
     global iString
     global firstTime  # True on the very first call, False all subsequent times
     global vPause
-    global okGo
+    global okGo  # end of video segment is not imminent, so normal processing is OK
     global nGOP
     global firstType2 # if this is a 'type 2' frame, is it the first one in a row?
 
@@ -236,25 +241,21 @@ with picamera.PiCamera() as camera:
 #    tStart = time.time() # seconds since Jan.1 1970
     lastFrame = time.time()
     daytime = datetime.now().strftime("%y%m%d_%H%M%S.%f")
-    daytime = "Start: 1 " + daytime[:-3] # loose the microseconds, leave milliseconds
+    daytime = "PiMotion Start: " + daytime[:-3] # loose the microseconds, leave milliseconds
     print("%s" % daytime)
 
     camera.resolution = (cXRes, cYRes)
     camera.framerate = frameRate
     camera.annotate_background = True # black rectangle behind white text for readibility
     camera.annotate_text = daytime
-#    output = MyCustomOutput(camera, date_gen())
-#    camera.start_recording(output, format='h264')
 
     for filename in camera.record_sequence( date_gen(camera), format='h264'):
-#      waitTime = segTime-(time.time()%segTime)
-      print("Recording for %d to %s" % (segTime,thisfile))
+      frameTotal = nGOPs * sizeGOP
+      recSec = (1.0 * frameTotal) / frameRate
+      print("Recording for %4.1f sec (%d frames) to %s" % (recSec, frameTotal, thisfile))
       okGo = True # ok to start analyzing again
-      time.sleep(segTime)
-      # vPause = True  # stop accessing camera for YUV frames and still frames
-      okGo = False # signal to stop event detect (YUV frame grab)
-      print("stopping...")
-      time.sleep(2.0/frameRate)  # delay insures YUV / still captures done before camera shutdown
+      while (okGo == True):  # write callback turns off 'okGo' near end of final GOP
+        time.sleep(1.0/frameRate)  # wait for one frame time
 
 #   as currently written, we never actually reach here    
     camera.stop_recording()
