@@ -20,6 +20,7 @@ global running  # have we done the initial array processing yet?
 global novMax   # value of maximum element of 'novel' array
 global vPause   # true when we should stop grabbing frames
 global nGOPs    # how many GOPs to record in one segment
+global mCount   # how many motion events detected in this segment
 
 picDir = "/run/shm/vid"   # where to store still frames
 videoDir = "/mnt/USB0/vid/"   # where to store video files
@@ -27,15 +28,16 @@ tmpDir = "/run/shm/" # where to store YUV frame buffer
 frameRate = 8   # how many frames per second to record in video
 segTime = 29 # how many seconds long one video segment is
 sizeGOP = 60 # number of I+P frames in one GOP
-#nGOPs = 8  # (nGOPs * sizeGOP) frames will be in one H264 video segment
-nGOPs = 2  # (nGOPs * sizeGOP) frames will be in one H264 video segment
+nGOPs = 8  # (nGOPs * sizeGOP) frames will be in one H264 video segment
+#nGOPs = 2  # (nGOPs * sizeGOP) frames will be in one H264 video segment
 
 
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
 sampleRate = 2 # run motion algorithm every this many frames
 dFactor = 3.0  # how many sigma above st.dev for diff value to qualify as motion pixel
-stg = 20       # groupsize for rolling statistics
+stg = 80       # groupsize for rolling statistics
+pixThresh = 8  # how many novel pixels counts as an event
 # --------------------------------------------------
 sti = (1.0/stg) # inverse of statistics groupsize
 sti1 = 1.0 - sti # 1 - inverse of statistics groupsize
@@ -95,7 +97,9 @@ def processImage(camera):
     global stdev # (matrix) rolling average standard deviation of pixels
     global initPass # how many initial passes we're doing
     global novMax # peak value of 'novel' array => relative amount of motion
-    
+    global countPixels # how many pixels show novelty value this frame
+    global avgNovel # average value of all 'novel' pixels > 0    
+
     newmap = pixvalScaleFactor * getFrame(camera)  # current pixmap  
 
     if not running:  # first time ever through this function?
@@ -111,19 +115,19 @@ def processImage(camera):
 
     stsum = (stsum * sti1) + newmap           # rolling sum of most recent 'stg' images (approximately)
     sqsum = (sqsum * sti1) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
-    devsq = 0.1 + (stg * sqsum) - np.power(stsum, 2)  # variance, had better not be negative
+    devsq = (stg * sqsum) - np.power(stsum, 2)  # variance, had better not be negative
+    np.clip(devsq, 0.1, 1E15, out=devsq)  # force all elements to have minimum value = 0.1
 	# adding 1.0 * pixvalScaleFactor is just saying every pixel has at least one count of std.dev
     stdev = pixvalScaleFactor + (1.0/stg) * np.power(devsq, 0.5)    # matrix holding rolling-average element-wise std.deviation
     novel = difmap - (dFactor * stdev)   # novel pixels have difference exceeding (dFactor * standard.deviation)
 
     novMax = np.amax(novel)  # largest value in 'novel' array: greatest unusual brightness change 
-    novMin = np.amin(novel)  # smallest value; very close to zero unless recent big brightness change
+    condition = novel > 0   # boolean array, 1 where pixel with positive novelty value exists
+    changedPixels = np.extract(condition, novel)  # make a list containing only changed pixels
+    countPixels = changedPixels.size
+    avgNovel = np.average(changedPixels)
 
-    dAvg = np.average(difmap)  # average of all elements of array (pixmap)
-    sAvg = np.average(stdev)
-
-# -- END processImage()   
- 
+# -- END processImage()    
   
 # -------------------------------------------------------------------------
 # the 'write()' member of this class is called whenever a buffer of image data is ready
@@ -148,6 +152,7 @@ class MyCustomOutput(object):
       global okGo  # False when we should turn off motion detect
       global nGOP  # how many (I,P,P,P...) H264 stream frame sets we have seen
       global firstType2 # first buffer of 'type 2' in a row
+      global mCount # how many motion events detected
 
       if (firstTime == True):
         tStart = time.time() # seconds since Jan.1 1970
@@ -181,12 +186,16 @@ class MyCustomOutput(object):
 
 	if ((trueFrameNumber % sampleRate) == 0) and not vPause:
           processImage(self.camera)  # do the number-crunching
+          if (countPixels >= pixThresh):
+	    print("n:%d  avg=%5.2f %s" % (countPixels,avgNovel,daytime))
 
-	novInt = int(novMax)
-	if (novInt < 0):
+
+#	novInt = int(novMax)
+	if (countPixels < pixThresh):
 	  iString = "  "
 	else:
 	  iString = "* "
+	  mCount = mCount + 1
         # set the in-frame text to time/date
         self.camera.annotate_text = iString + str(trueFrameNumber+2) + " " + daytime 
         tFrame = time.time()
@@ -227,7 +236,11 @@ with picamera.PiCamera() as camera:
     global okGo  # end of video segment is not imminent, so normal processing is OK
     global nGOP
     global firstType2 # if this is a 'type 2' frame, is it the first one in a row?
+    global mCount     # count of motion events
+    global countPixels # how many new pixels
 
+    mCount = 0        # how many motion events detected
+    countPixels = 0   # how many pixels show novelty, this frame
     nGOP = 0	      # have not yet encoded any H264 GOPs yet
     okGo = True       # OK to grab frames
     vPause = False    # OK to grab frames
@@ -241,8 +254,8 @@ with picamera.PiCamera() as camera:
 #    tStart = time.time() # seconds since Jan.1 1970
     lastFrame = time.time()
     daytime = datetime.now().strftime("%y%m%d_%H%M%S.%f")
-    daytime = "PiMotion Start: " + daytime[:-3] # loose the microseconds, leave milliseconds
-    print("%s" % daytime)
+    daytime = daytime[:-3] # loose the microseconds, leave milliseconds
+    print("PiMotion Start: %s" % daytime)
 
     camera.resolution = (cXRes, cYRes)
     camera.framerate = frameRate
@@ -252,6 +265,8 @@ with picamera.PiCamera() as camera:
     for filename in camera.record_sequence( date_gen(camera), format='h264'):
       frameTotal = nGOPs * sizeGOP
       recSec = (1.0 * frameTotal) / frameRate
+      print("Motion events: %d" % mCount)
+      mCount = 0
       print("Recording for %4.1f sec (%d frames) to %s" % (recSec, frameTotal, thisfile))
       okGo = True # ok to start analyzing again
       while (okGo == True):  # write callback turns off 'okGo' near end of final GOP
