@@ -8,7 +8,7 @@
 # if the picture data is larger than one buffer, \
 # so need to check if camera.frame.index has changed, and
 # also some buffers are not I/P image frames, so need to ignore those.
-# 02 October 2014  J.Beale
+# 06 October 2014  J.Beale
 
 from __future__ import print_function
 import io
@@ -53,10 +53,17 @@ pixvalScaleFactor = 65535/255.0  # multiply single-byte values by this factor
 
 # --------------------------------------------------
 def date_gen(camera):
-  global thisfile
+  global segtime
+  global segName
   while True:
-    thisfile = videoDir + datetime.now().strftime("%y%m%d_%H%M%S") + ".h264"
-    yield MyCustomOutput(camera, thisfile)
+
+    segtime = time.time()  # current time in seconds since Jan 1 1970
+    segdate = time.strftime("%y%m%d_%H%M%S.%f", time.localtime(segtime))
+    segdate = segdate[:-3] # loose the microseconds, leave milliseconds
+
+    segName = videoDir + segdate + ".h264"
+    print("this file = %s" % segName)
+    yield MyCustomOutput(camera, segName)
 
 
 # initMaps(): initialize pixel maps with correct size and data type
@@ -145,7 +152,8 @@ class MyCustomOutput(object):
       global tInterval
       global lastFrac
       global lastFrame
-      global trueFrameNumber
+      global trueFrameNumber # how many video frames since camera started
+      global segFrameNumber # how many video frames since this .h264 file segment
       global iString
       global firstTime  # True on the very first call, False all subsequent times
       global vPause # True => no motion detect
@@ -167,6 +175,7 @@ class MyCustomOutput(object):
         if (okGo == False):
           # print("End GOP marker: %d" % nGOP)
 	  vPause = True
+	  segFrameNumber = 0 # reset in-segment frame number for start of new segment
 	if (firstType2 == True):
 	  nGOP = nGOP + 1    # ok, first 'type 2' buffer => completed another GOP
 	  firstType2 = False
@@ -178,6 +187,7 @@ class MyCustomOutput(object):
       if (fnum != fnumOld) and (ftype != 2):  # ignore continuation of a previous frame, and SPS headers
         
         trueFrameNumber = trueFrameNumber + 1
+	segFrameNumber = segFrameNumber + 1  # how many frames since start of this H264 segment (file)
         fnumOld = fnum
         daytime = datetime.now().strftime("%H:%M:%S.%f")  
         daytime = daytime[:-3] # lose the microseconds, leave milliseconds
@@ -187,7 +197,8 @@ class MyCustomOutput(object):
 	if ((trueFrameNumber % sampleRate) == 0) and not vPause:
           processImage(self.camera)  # do the number-crunching
           if (countPixels >= pixThresh):
-	    print("n:%d  avg=%5.2f %s" % (countPixels,avgNovel,daytime))
+	    eventRelTime = time.time() - segtime  # number of seconds since start of current H264 segment
+	    print("n:%d  avg=%5.2f %s %5.3f, frame:%d" % (countPixels,avgNovel,daytime,eventRelTime,segFrameNumber))
 
 
 #	novInt = int(novMax)
@@ -230,6 +241,7 @@ with picamera.PiCamera() as camera:
     global tInterval
     global lastFrame
     global trueFrameNumber
+    global segFrameNumber # how many video frames since this .h264 file segment
     global iString
     global firstTime  # True on the very first call, False all subsequent times
     global vPause
@@ -246,6 +258,7 @@ with picamera.PiCamera() as camera:
     vPause = False    # OK to grab frames
     firstTime = True  # have not run yet    
     firstType2 = True # previous frame was not 'type 2'
+    segFrameNumber = 0 # no frames saved yet
     iString = " "  # no "event" flag yet
     trueFrameNumber = 1  # actual video image frame count, not just packets or whatnot
     lastFrac = 0
@@ -262,12 +275,12 @@ with picamera.PiCamera() as camera:
     camera.annotate_background = True # black rectangle behind white text for readibility
     camera.annotate_text = daytime
 
-    for filename in camera.record_sequence( date_gen(camera), format='h264'):
+    for vidFile in camera.record_sequence( date_gen(camera), format='h264'):
       frameTotal = nGOPs * sizeGOP
       recSec = (1.0 * frameTotal) / frameRate
       print("Motion events: %d" % mCount)
       mCount = 0
-      print("Recording for %4.1f sec (%d frames) to %s" % (recSec, frameTotal, thisfile))
+      print("Recording for %4.1f sec (%d frames) to %s" % (recSec, frameTotal, segName))
       okGo = True # ok to start analyzing again
       while (okGo == True):  # write callback turns off 'okGo' near end of final GOP
         time.sleep(1.0/frameRate)  # wait for one frame time
