@@ -56,16 +56,17 @@ pixvalScaleFactor = 65535/255.0  # multiply single-byte values by this factor
 
 # --------------------------------------------------
 def date_gen(camera):
-  global segtime
+  global segTime
   global segName
+  global segDate
   while True:
 
-    segtime = time.time()  # current time in seconds since Jan 1 1970
-    segdate = time.strftime("%y%m%d_%H%M%S.%f", time.localtime(segtime))
-    segdate = segdate[:-3] # loose the microseconds, leave milliseconds
+    segTime = time.time()  # current time in seconds since Jan 1 1970
+    segDate = time.strftime("%y%m%d_%H%M%S.%f", time.localtime(segTime))
+    segDate = segDate[:-3] # loose the microseconds, leave milliseconds
 
-    segName = videoDir + segdate + ".h264"
-    print("this file = %s" % segName)
+    segName = videoDir + segDate + ".h264"
+    # print("this file = %s" % segName)
     yield MyCustomOutput(camera, segName)
 
 
@@ -200,7 +201,7 @@ class MyCustomOutput(object):
 	if ((trueFrameNumber % sampleRate) == 0) and not vPause:
           processImage(self.camera)  # do the number-crunching
           if (countPixels >= pixThresh):
-	    eventRelTime = time.time() - segtime  # number of seconds since start of current H264 segment
+	    eventRelTime = time.time() - segTime  # number of seconds since start of current H264 segment
 #	    print("n:%d  avg=%5.2f %s %5.3f, frame:%d" % (countPixels,avgNovel,daytime,eventRelTime,segFrameNumber))
 
 
@@ -271,7 +272,7 @@ with picamera.PiCamera() as camera:
     lastFrame = time.time()
     daytime = datetime.now().strftime("%y%m%d_%H%M%S.%f")
     daytime = daytime[:-3] # loose the microseconds, leave milliseconds
-    print("PiMotion Start: %s" % daytime)
+    print("# PiMotion Start: %s" % daytime)
 
     camera.resolution = (cXRes, cYRes)
     camera.framerate = frameRate
@@ -281,17 +282,17 @@ with picamera.PiCamera() as camera:
     for vidFile in camera.record_sequence( date_gen(camera), format='h264'):
       frameTotal = nGOPs * sizeGOP
       recSec = (1.0 * frameTotal) / frameRate
-      print("Motion events: %d" % mCount)
+#      print("Motion events: %d" % mCount)
       mCount = 0
-      print("Recording for %4.1f sec (%d frames) to %s" % (recSec, frameTotal, segName))
+      print("# Recording for %4.1f sec (%d frames) to %s" % (recSec, frameTotal, segName))
       okGo = True # ok to start analyzing again
       while (okGo == True):  # write callback turns off 'okGo' near end of final GOP
-	print(segFrameNumber) # DEBUG show frame number in segment
+#	print(segFrameNumber) # DEBUG show frame number in segment
         if (countPixels >= pixThresh):
-	    print("n:%d  avg=%5.2f %s frame:%d" % (countPixels,avgNovel,daytime,segFrameNumber))
+	    print("%d,%5.2f,%s,%s,%d" % (countPixels,avgNovel,daytime,segDate,segFrameNumber))
         time.sleep(2.0/frameRate)  # wait for one frame time
 
 #   as currently written, we never actually reach here    
     camera.stop_recording()
     output.close()
-    print("Now done.")
+    print("# Now done.")
