@@ -21,14 +21,17 @@ global novMax   # value of maximum element of 'novel' array
 global vPause   # true when we should stop grabbing frames
 global nGOPs    # how many GOPs to record in one segment
 global mCount   # how many motion events detected in this segment
+global framesLead # lead time allowed before end-of-GOP to stop sampling YUV
+
 
 picDir = "/run/shm/vid"   # where to store still frames
 videoDir = "/mnt/USB0/vid/"   # where to store video files
 tmpDir = "/run/shm/" # where to store YUV frame buffer
 frameRate = 8   # how many frames per second to record in video
-segTime = 29 # how many seconds long one video segment is
+#segTime = 29 # how many seconds long one video segment is
 sizeGOP = 60 # number of I+P frames in one GOP
-nGOPs = 8  # (nGOPs * sizeGOP) frames will be in one H264 video segment
+nGOPs = 80  # (nGOPs * sizeGOP) frames will be in one H264 video segment
+framesLead = 2 # how many frames before end-of-GOP we need to stop analyzing
 #nGOPs = 2  # (nGOPs * sizeGOP) frames will be in one H264 video segment
 
 
@@ -147,7 +150,7 @@ class MyCustomOutput(object):
 
     def write(self, buf):
       global fnumOld
-      global daytime
+      global daytime # time-of-day when most recent frame buffer data started
       global tStart
       global tInterval
       global lastFrac
@@ -169,7 +172,7 @@ class MyCustomOutput(object):
       fnum = self.camera.frame.index
       ftype = self.camera.frame.frame_type
 #      print("%d, ft:%d" % (fnum, ftype))
-      vPause = True   # DEBUG hold off all event-detect
+#      vPause = True   # DEBUG hold off all event-detect
 
       if (ftype == 2):  # end of GOP?
         if (okGo == False):
@@ -198,7 +201,7 @@ class MyCustomOutput(object):
           processImage(self.camera)  # do the number-crunching
           if (countPixels >= pixThresh):
 	    eventRelTime = time.time() - segtime  # number of seconds since start of current H264 segment
-	    print("n:%d  avg=%5.2f %s %5.3f, frame:%d" % (countPixels,avgNovel,daytime,eventRelTime,segFrameNumber))
+#	    print("n:%d  avg=%5.2f %s %5.3f, frame:%d" % (countPixels,avgNovel,daytime,eventRelTime,segFrameNumber))
 
 
 #	novInt = int(novMax)
@@ -212,7 +215,7 @@ class MyCustomOutput(object):
         tFrame = time.time()
         fps = 1.0 / (tFrame - lastFrame)
 #        print("%d, %d, %s ft:%d nov: %4.1f fps=%4.2f" % (trueFrameNumber, fnum, daytime, ftype, novMax, fps))
-	if ((trueFrameNumber + 2) % (nGOPs * sizeGOP)) == 0:
+	if ((trueFrameNumber + framesLead) % (nGOPs * sizeGOP)) == 0:
 #	  print("  Ending Soon... I frame in 2")
 	  okGo = False  # we are about to end this video segment; halt event processing
         lastFrame = tFrame
@@ -283,7 +286,10 @@ with picamera.PiCamera() as camera:
       print("Recording for %4.1f sec (%d frames) to %s" % (recSec, frameTotal, segName))
       okGo = True # ok to start analyzing again
       while (okGo == True):  # write callback turns off 'okGo' near end of final GOP
-        time.sleep(1.0/frameRate)  # wait for one frame time
+	print(segFrameNumber) # DEBUG show frame number in segment
+        if (countPixels >= pixThresh):
+	    print("n:%d  avg=%5.2f %s frame:%d" % (countPixels,avgNovel,daytime,segFrameNumber))
+        time.sleep(2.0/frameRate)  # wait for one frame time
 
 #   as currently written, we never actually reach here    
     camera.stop_recording()
