@@ -25,21 +25,22 @@ global framesLead # lead time allowed before end-of-GOP to stop sampling YUV
 
 
 picDir = "/run/shm/vid"   # where to store still frames
-videoDir = "/mnt/USB0/vid/"   # where to store video files
+videoDir = "/ram/"   # where to store video files
+#videoDir = "/mnt/USB0/vid/"   # where to store video files
+#videoDir = "/mnt/video1/"   # where to store video files
 tmpDir = "/run/shm/" # where to store YUV frame buffer
 frameRate = 8   # how many frames per second to record in video
+sampleRate = 2 # run motion algorithm every this many frames
 #segTime = 29 # how many seconds long one video segment is
 sizeGOP = 60 # number of I+P frames in one GOP
-nGOPs = 80  # (nGOPs * sizeGOP) frames will be in one H264 video segment
+nGOPs = 4  # (nGOPs * sizeGOP) frames will be in one H264 video segment
 framesLead = 2 # how many frames before end-of-GOP we need to stop analyzing
-#nGOPs = 2  # (nGOPs * sizeGOP) frames will be in one H264 video segment
-
+mCalcInterval = 2.0/frameRate # seconds in between motion calculations
 
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
-sampleRate = 2 # run motion algorithm every this many frames
 dFactor = 3.0  # how many sigma above st.dev for diff value to qualify as motion pixel
-stg = 80       # groupsize for rolling statistics
+stg = 160       # groupsize for rolling statistics
 pixThresh = 8  # how many novel pixels counts as an event
 # --------------------------------------------------
 sti = (1.0/stg) # inverse of statistics groupsize
@@ -72,7 +73,7 @@ def date_gen(camera):
 
 # initMaps(): initialize pixel maps with correct size and data type
 def initMaps():
-    global newmap, difmap, avgdif, mtStart, lastTime, stsum, sqsum, stdev, novMax
+    global newmap, difmap, avgdif, mtStart, lastTime, stsum, sqsum, stdev, novMax, avgNovel
     newmap = np.zeros((ysize,xsize),dtype=np.float32) # new image
     difmap = np.zeros((ysize,xsize),dtype=np.float32) # difference between new & avg
     stsum  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average sum of pix values
@@ -83,6 +84,7 @@ def initMaps():
     novMax = 0   # haven't seen anything new yet, you betcha
     mtStart = time.time()  # time that program starts
     lastTime = mtStart  # last time event detected
+    avgNovel = 0  # average of all "novel" pixels
 
 # saveFrame(): save a JPEG file
 def saveFrame(camera):
@@ -136,7 +138,10 @@ def processImage(camera):
     condition = novel > 0   # boolean array, 1 where pixel with positive novelty value exists
     changedPixels = np.extract(condition, novel)  # make a list containing only changed pixels
     countPixels = changedPixels.size
-    avgNovel = np.average(changedPixels)
+    if (countPixels > 0):
+      avgNovel = np.average(changedPixels)
+    else:
+      avgNovel = 0
 
 # -- END processImage()    
   
@@ -151,7 +156,7 @@ class MyCustomOutput(object):
 
     def write(self, buf):
       global fnumOld
-      global daytime # time-of-day when most recent frame buffer data started
+      global daytime # time-of-day when 1st buffer of latest video frame started
       global tStart
       global tInterval
       global lastFrac
@@ -172,8 +177,6 @@ class MyCustomOutput(object):
 
       fnum = self.camera.frame.index
       ftype = self.camera.frame.frame_type
-#      print("%d, ft:%d" % (fnum, ftype))
-#      vPause = True   # DEBUG hold off all event-detect
 
       if (ftype == 2):  # end of GOP?
         if (okGo == False):
@@ -193,19 +196,10 @@ class MyCustomOutput(object):
         trueFrameNumber = trueFrameNumber + 1
 	segFrameNumber = segFrameNumber + 1  # how many frames since start of this H264 segment (file)
         fnumOld = fnum
+
         daytime = datetime.now().strftime("%H:%M:%S.%f")  
         daytime = daytime[:-3] # lose the microseconds, leave milliseconds
         
-        self.camera.annotate_text = iString + str(trueFrameNumber+2) + " " + daytime 
-
-	if ((trueFrameNumber % sampleRate) == 0) and not vPause:
-          processImage(self.camera)  # do the number-crunching
-          if (countPixels >= pixThresh):
-	    eventRelTime = time.time() - segTime  # number of seconds since start of current H264 segment
-#	    print("n:%d  avg=%5.2f %s %5.3f, frame:%d" % (countPixels,avgNovel,daytime,eventRelTime,segFrameNumber))
-
-
-#	novInt = int(novMax)
 	if (countPixels < pixThresh):
 	  iString = "  "
 	else:
@@ -213,15 +207,17 @@ class MyCustomOutput(object):
 	  mCount = mCount + 1
         # set the in-frame text to time/date
         self.camera.annotate_text = iString + str(trueFrameNumber+2) + " " + daytime 
-        tFrame = time.time()
-        fps = 1.0 / (tFrame - lastFrame)
+
+#        tFrame = time.time()
+#        fps = 1.0 / (tFrame - lastFrame)
 #        print("%d, %d, %s ft:%d nov: %4.1f fps=%4.2f" % (trueFrameNumber, fnum, daytime, ftype, novMax, fps))
+
 	if ((trueFrameNumber + framesLead) % (nGOPs * sizeGOP)) == 0:
-#	  print("  Ending Soon... I frame in 2")
 	  okGo = False  # we are about to end this video segment; halt event processing
-        lastFrame = tFrame
-        tElapsed = tFrame - tStart  # seconds since program start
-        outFrac = tElapsed / tInterval
+
+#        lastFrame = tFrame
+#        tElapsed = tFrame - tStart  # seconds since program start
+#        outFrac = tElapsed / tInterval
       return self._file.write(buf)
 
     def flush(self):
@@ -254,6 +250,8 @@ with picamera.PiCamera() as camera:
     global firstType2 # if this is a 'type 2' frame, is it the first one in a row?
     global mCount     # count of motion events
     global countPixels # how many new pixels
+    global eventRelTime
+    global segTime
 
     mCount = 0        # how many motion events detected
     countPixels = 0   # how many pixels show novelty, this frame
@@ -273,7 +271,9 @@ with picamera.PiCamera() as camera:
     daytime = datetime.now().strftime("%y%m%d_%H%M%S.%f")
     daytime = daytime[:-3] # loose the microseconds, leave milliseconds
     print("# PiMotion Start: %s" % daytime)
-
+    log = open(videoDir+"PiMotionStart.log", 'w')       # dummy file with program start-time
+    log.close()
+	
     camera.resolution = (cXRes, cYRes)
     camera.framerate = frameRate
     camera.annotate_background = True # black rectangle behind white text for readibility
@@ -284,13 +284,34 @@ with picamera.PiCamera() as camera:
       recSec = (1.0 * frameTotal) / frameRate
 #      print("Motion events: %d" % mCount)
       mCount = 0
-      print("# Recording for %4.1f sec (%d frames) to %s" % (recSec, frameTotal, segName))
+#      print("# Recording for %4.1f sec (%d frames) to %s" % (recSec, frameTotal, segName))
+      logFileName = segName[:-4] + "txt"
+#      print("logfile = %s" % logFileName)
+      if not log.closed:
+	log.close()
+      log = open(logFileName, 'w')       # open logfile for new video file
+
       okGo = True # ok to start analyzing again
       while (okGo == True):  # write callback turns off 'okGo' near end of final GOP
+	tLoop = time.time()
+
 #	print(segFrameNumber) # DEBUG show frame number in segment
-        if (countPixels >= pixThresh):
-	    print("%d,%5.2f,%s,%s,%d" % (countPixels,avgNovel,daytime,segDate,segFrameNumber))
-        time.sleep(2.0/frameRate)  # wait for one frame time
+#        print("%d, ft:%d" % (fnum, ftype))
+#	if ((trueFrameNumber % sampleRate) == 0) and not vPause:
+	if not vPause:
+          processImage(camera)  # do the number-crunching
+          if (countPixels >= pixThresh):
+	    eventRelTime = time.time() - segTime  # number of seconds since start of current H264 segment
+	    # print("%d,%5.2f,%s,%s,%5.3f" % (countPixels,avgNovel,daytime,segDate,segFrameNumber*1.0/frameRate))
+	tRemain = mCalcInterval - (time.time() - tLoop)
+#	print("%d, %5.3f, %d" % (segFrameNumber, tRemain, countPixels))
+	if not log.closed:
+          log.write("%d, %5.3f, %5.1f, %5.3f, %s\n" % \
+		(countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, daytime))
+	if (tRemain > 0):
+          time.sleep(tRemain) # delay in between motion calculations
+
+
 
 #   as currently written, we never actually reach here    
     camera.stop_recording()
