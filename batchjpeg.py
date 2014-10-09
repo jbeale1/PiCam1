@@ -1,0 +1,48 @@
+#!/usr/bin/python
+
+# Batch-convert video frames with motion, to JPEG
+# works through all '123456_xxxxxx.txt' type files in directory)
+
+# Read CSV type text file describing motion in video frames
+# use 'avconv' to extract high-motion frames as JPEG stills
+# from corresponding .mp4 file
+# J.Beale 10-October-2014
+
+from __future__ import print_function
+import csv, os
+from subprocess import call  # execute commands in OS shell
+
+pThresh = 120 # pixel-count threshold for review
+aThresh = 1200 # average-novel-value threshold for review
+
+# ==================================================
+def saveFile(fin,fout,time):
+  print("in: %s  out: %s  sec: %s" % (fin, fout, time))  
+  call(["avconv","-ss",time,"-i",fin,"-frames:v","1","-q:v","2",fout])
+
+# -----------------------------------------------------
+
+
+#print("Index File: %s" % fname)
+#call(["ls", "-l", fname])
+for fname in os.listdir(os.getcwd()):
+  if fname.endswith(".txt") and fname[0:6].isdigit():
+    print("file: %s" % fname)
+    vidfile = fname[:-3] + "mp4" # construct video filename from index file
+    with open(fname, 'rb') as csvfile:
+      freader = csv.reader(csvfile, delimiter=',', quotechar='"')
+      for row in freader:
+#    print("%s, %s" % (row[0], row[1]))
+        try:
+          v1 = int(row[0])
+          sec = float(row[1])
+          avg = float(row[2])
+          if (v1 > pThresh) and (avg > aThresh):
+#            print("%d, %5.3f, %5.3f" % (v1,sec,avg))
+            spos = "+%05.2f" % sec
+            fout = fname[:-4] + spos + ".jpg"
+	    timestr = "%5.3f" % sec
+            saveFile(vidfile,fout,timestr) # extract still from this frame
+        except ValueError:
+	  v1 = 0
+
