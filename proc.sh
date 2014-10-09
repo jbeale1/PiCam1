@@ -28,6 +28,8 @@ while [ 1 ]; do
 	echo "$fmp4 OK"
 	rm -f $fname
      fi
+     echo "now processing $fbase.txt"
+     ./batchjpeg.py $fbase.txt
   fi
  done
  sleep 15
