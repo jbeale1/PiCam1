@@ -206,18 +206,12 @@ class MyCustomOutput(object):
 	  iString = "* "
 	  mCount = mCount + 1
         # set the in-frame text to time/date
-        self.camera.annotate_text = iString + str(trueFrameNumber+2) + " " + daytime 
-
-#        tFrame = time.time()
-#        fps = 1.0 / (tFrame - lastFrame)
-#        print("%d, %d, %s ft:%d nov: %4.1f fps=%4.2f" % (trueFrameNumber, fnum, daytime, ftype, novMax, fps))
+#        self.camera.annotate_text = iString + str(segFrameNumber+2) + " " + daytime 
+        self.camera.annotate_text = iString + " " + daytime 
 
 	if ((trueFrameNumber + framesLead) % (nGOPs * sizeGOP)) == 0:
 	  okGo = False  # we are about to end this video segment; halt event processing
 
-#        lastFrame = tFrame
-#        tElapsed = tFrame - tStart  # seconds since program start
-#        outFrac = tElapsed / tInterval
       return self._file.write(buf)
 
     def flush(self):
