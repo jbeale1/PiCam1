@@ -6,15 +6,18 @@
 # Read CSV type text file describing motion in video frames
 # use 'avconv' to extract high-motion frames as JPEG stills
 # from corresponding .mp4 file
-# J.Beale 10-October-2014
+# 
+# 11-Oct-14: Change pThresh,aThresh to extract smaller events
+#
+# J.Beale 11-October-2014
 
 from __future__ import print_function
 import csv, os, sys, time
 from subprocess import call  # execute commands in OS shell
 
 picDir = "./events/" # where to save JPEG still frames
-pThresh = 120 # pixel-count threshold for review
-aThresh = 1200 # average-novel-value threshold for review
+pThresh = 20 # pixel-count threshold for review
+aThresh = 500 # average-novel-value threshold for review
 
 # ==================================================
 def saveFile(fin,fout,otime):
@@ -41,6 +44,8 @@ def scanFiles(fname):
           v1 = int(row[0])
           sec = float(row[1])
           avg = float(row[2])
+          if sec > 30.0:
+            sec = sec - 30.0  # bugfix, should not ever happen
           if (v1 > pThresh) and (avg > aThresh):
             spos = "+%05.2f" % sec
             fout = fname[:-4] + spos + ".jpg"
