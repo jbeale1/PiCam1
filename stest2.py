@@ -8,7 +8,7 @@
 # if the picture data is larger than one buffer, \
 # so need to check if camera.frame.index has changed, and
 # also some buffers are not I/P image frames, so need to ignore those.
-# 06 October 2014  J.Beale
+# 11 October 2014  J.Beale
 
 from __future__ import print_function
 import io
@@ -60,12 +60,13 @@ def date_gen(camera):
   global segTime
   global segName
   global segDate
+  global segFrameNumber
   while True:
 
     segTime = time.time()  # current time in seconds since Jan 1 1970
     segDate = time.strftime("%y%m%d_%H%M%S.%f", time.localtime(segTime))
     segDate = segDate[:-3] # loose the microseconds, leave milliseconds
-
+    segFrameNumber = 0 # reset in-segment frame number for start of new segment
     segName = videoDir + segDate + ".h264"
     # print("this file = %s" % segName)
     yield MyCustomOutput(camera, segName)
@@ -182,7 +183,6 @@ class MyCustomOutput(object):
         if (okGo == False):
           # print("End GOP marker: %d" % nGOP)
 	  vPause = True
-	  segFrameNumber = 0 # reset in-segment frame number for start of new segment
 	if (firstType2 == True):
 	  nGOP = nGOP + 1    # ok, first 'type 2' buffer => completed another GOP
 	  firstType2 = False
@@ -197,7 +197,7 @@ class MyCustomOutput(object):
 	segFrameNumber = segFrameNumber + 1  # how many frames since start of this H264 segment (file)
         fnumOld = fnum
 
-        daytime = datetime.now().strftime("%H:%M:%S.%f")  
+        daytime = datetime.now().strftime("%y%m%d_%H:%M:%S.%f")  
         daytime = daytime[:-3] # lose the microseconds, leave milliseconds
         
 	if (countPixels < pixThresh):
@@ -270,6 +270,8 @@ with picamera.PiCamera() as camera:
 	
     camera.resolution = (cXRes, cYRes)
     camera.framerate = frameRate
+    camera.exposure_mode = 'sports'  # faster shuttter reduces blur
+    camera.exposure_compensation = -9 # slightly darker than default
     camera.annotate_background = True # black rectangle behind white text for readibility
     camera.annotate_text = daytime
 
@@ -289,16 +291,13 @@ with picamera.PiCamera() as camera:
       while (okGo == True):  # write callback turns off 'okGo' near end of final GOP
 	tLoop = time.time()
 
-#	print(segFrameNumber) # DEBUG show frame number in segment
-#        print("%d, ft:%d" % (fnum, ftype))
-#	if ((trueFrameNumber % sampleRate) == 0) and not vPause:
 	if not vPause:
           processImage(camera)  # do the number-crunching
           if (countPixels >= pixThresh):
 	    eventRelTime = time.time() - segTime  # number of seconds since start of current H264 segment
-	    # print("%d,%5.2f,%s,%s,%5.3f" % (countPixels,avgNovel,daytime,segDate,segFrameNumber*1.0/frameRate))
 	tRemain = mCalcInterval - (time.time() - tLoop)
-#	print("%d, %5.3f, %d" % (segFrameNumber, tRemain, countPixels))
+#        print("%d, %5.3f, %5.1f, %5.3f, %s\n" % \
+#		(countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, daytime))
 	if not log.closed:
           log.write("%d, %5.3f, %5.1f, %5.3f, %s\n" % \
 		(countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, daytime))
