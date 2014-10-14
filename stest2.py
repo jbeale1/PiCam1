@@ -14,21 +14,24 @@
 #
 # 12 October 2014  J.Beale
 
+# To install needed Python components do:
+# sudo apt-get install python-picamera python-numpy python-scipy 
+
 from __future__ import print_function
 import io
 import picamera, time
 from datetime import datetime  # for 'daytime' string
 import numpy as np  # for number-crunching on arrays
+from scipy import ndimage  # for array center-of-mass (location of new object)
 
 global running  # have we done the initial array processing yet?
-global novMax   # value of maximum element of 'novel' array
 global vPause   # true when we should stop grabbing frames
 global nGOPs    # how many GOPs to record in one segment
 global mCount   # how many motion events detected in this segment
 global framesLead # lead time allowed before end-of-GOP to stop sampling YUV
 
 
-picDir = "/run/shm/vid"   # where to store still frames
+picDir = "/run/shm/vid/"   # where to store still frames
 videoDir = "/ram/"   # where to store video files
 tmpDir = "/run/shm/" # where to store YUV frame buffer
 frameRate = 8   # how many frames per second to record in video
@@ -75,7 +78,8 @@ def date_gen(camera):
 
 # initMaps(): initialize pixel maps with correct size and data type
 def initMaps():
-    global newmap, difmap, avgdif, mtStart, lastTime, stsum, sqsum, stdev, novMax, avgNovel
+    global newmap, difmap, avgdif, mtStart, lastTime, stsum, sqsum, stdev
+    global avgNovel, xcent, ycent
     newmap = np.zeros((ysize,xsize),dtype=np.float32) # new image
     difmap = np.zeros((ysize,xsize),dtype=np.float32) # difference between new & avg
     stsum  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average sum of pix values
@@ -83,10 +87,11 @@ def initMaps():
     stdev  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average standard deviation
     avgdif  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average difference
 
-    novMax = 0   # haven't seen anything new yet, you betcha
     mtStart = time.time()  # time that program starts
     lastTime = mtStart  # last time event detected
     avgNovel = 0  # average of all "novel" pixels
+    xcent = 0 # average x,y location of new object(s)
+    ycent = 0 #
 
 # saveFrame(): save a JPEG file
 def saveFrame(camera):
@@ -111,9 +116,9 @@ def processImage(camera):
     global sqsum # (matrix) rolling average sum of squared pixvals
     global stdev # (matrix) rolling average standard deviation of pixels
     global initPass # how many initial passes we're doing
-    global novMax # peak value of 'novel' array => relative amount of motion
     global countPixels # how many pixels show novelty value this frame
     global avgNovel # average value of all 'novel' pixels > 0    
+    global xcent, ycent # average location of detected object
 
     newmap = pixvalScaleFactor * getFrame(camera)  # current pixmap  
 
@@ -136,14 +141,16 @@ def processImage(camera):
     stdev = pixvalScaleFactor + (1.0/stg) * np.power(devsq, 0.5)    # matrix holding rolling-average element-wise std.deviation
     novel = difmap - (dFactor * stdev)   # novel pixels have difference exceeding (dFactor * standard.deviation)
 
-    novMax = np.amax(novel)  # largest value in 'novel' array: greatest unusual brightness change 
     condition = novel > 0   # boolean array, 1 where pixel with positive novelty value exists
     changedPixels = np.extract(condition, novel)  # make a list containing only changed pixels
     countPixels = changedPixels.size
-    if (countPixels > 0):
+    if (countPixels > 0):  # found something! (at least one pixel's worth of something)
       avgNovel = np.average(changedPixels)
+      np.clip(novel, 0.0, 1E15, out=novel) # force all negative elements of 'novel' matrix to 0
+      (ycent, xcent) = ndimage.measurements.center_of_mass(novel) # avg. position of motion. x is horizontal axis on image
     else:
       avgNovel = 0
+      (xcent, ycent) = (0, 0)  # nothing to see here, apparently
 
 # -- END processImage()    
   
@@ -250,6 +257,7 @@ with picamera.PiCamera() as camera:
 
     mCount = 0        # how many motion events detected
     countPixels = 0   # how many pixels show novelty, this frame
+    lastCP = 0        # previous reported countPixels value
     nGOP = 0	      # have not yet encoded any H264 GOPs yet
     okGo = True       # OK to grab frames
     vPause = False    # OK to grab frames
@@ -297,14 +305,15 @@ with picamera.PiCamera() as camera:
           if (countPixels >= pixThresh):
 	    eventRelTime = time.time() - segTime  # number of seconds since start of current H264 segment
 	tRemain = mCalcInterval - (time.time() - tLoop)
-#        print("%d, %5.3f, %5.1f, %5.3f, %s\n" % \
-#		(countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, daytime))
-	if not log.closed:
-          log.write("%d, %5.3f, %5.1f, %5.3f, %s\n" % \
-		(countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, daytime))
+#	if (tRemain < 0) or (lastCP != 0):
+#          print("%d, %5.3f, %5.1f, %5.3f, %4.1f,%4.1f, %s" % \
+#		(countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, xcent, ycent, daytime))
+	if (not log.closed) and ( (tRemain < 0) or (lastCP != 0)):
+          log.write("%d, %5.3f, %5.1f, %5.3f, %4.1f,%4.1f, %s\n" % \
+		(countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, xcent, ycent, daytime))
 	if (tRemain > 0):
           time.sleep(tRemain) # delay in between motion calculations
-
+        lastCP = countPixels # remember the previous countPixels value
 
 
 #   as currently written, we never actually reach here    
