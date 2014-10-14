@@ -14,7 +14,7 @@ toDir="/media/sdb1/"
 
 # user and name of remote host
 # must change this to match your setup, like "pi@192.168.10.50"
-host="user@host"
+host="pi@192.168.1.56"
 
 
 while [ 1 ]; do
@@ -25,7 +25,7 @@ while [ 1 ]; do
     oldFile="${oldFileFull##*/}"
     fBase="${oldFile%.*}"
     fLog="$fBase.txt"
-    # echo "files = $fnum  So, should move $fDir$oldFile and $fDir$fLog to $toDir"
+    echo "files = $fnum  So, should move $fDir$oldFile and $fDir$fLog to $toDir"
     nice -n 20 scp -c blowfish "$fDir$oldFile" "$host":\""$toDir$oldFile"\"
     nice -n 20 scp -c blowfish "$fDir$fLog" "$host":\""$toDir$fLog"\"
     rm "$fDir$oldFile"

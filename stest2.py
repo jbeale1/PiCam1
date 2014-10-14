@@ -8,7 +8,11 @@
 # if the picture data is larger than one buffer, \
 # so need to check if camera.frame.index has changed, and
 # also some buffers are not I/P image frames, so need to ignore those.
-# 11 October 2014  J.Beale
+#
+# Recommend to increase priority with 'sudo chrt -r -p 99 <pid>' 
+# to reduce variability of process scheduling delays
+#
+# 12 October 2014  J.Beale
 
 from __future__ import print_function
 import io
@@ -26,15 +30,12 @@ global framesLead # lead time allowed before end-of-GOP to stop sampling YUV
 
 picDir = "/run/shm/vid"   # where to store still frames
 videoDir = "/ram/"   # where to store video files
-#videoDir = "/mnt/USB0/vid/"   # where to store video files
-#videoDir = "/mnt/video1/"   # where to store video files
 tmpDir = "/run/shm/" # where to store YUV frame buffer
 frameRate = 8   # how many frames per second to record in video
-sampleRate = 2 # run motion algorithm every this many frames
-#segTime = 29 # how many seconds long one video segment is
+sampleRate = 2 # run motion algorithm every N frames
 sizeGOP = 60 # number of I+P frames in one GOP
 nGOPs = 4  # (nGOPs * sizeGOP) frames will be in one H264 video segment
-framesLead = 2 # how many frames before end-of-GOP we need to stop analyzing
+framesLead = 1 # how many frames before end-of-GOP we need to stop analyzing
 mCalcInterval = 2.0/frameRate # seconds in between motion calculations
 
 cXRes = 1920   # camera capture X resolution (video file res)
@@ -271,7 +272,7 @@ with picamera.PiCamera() as camera:
     camera.resolution = (cXRes, cYRes)
     camera.framerate = frameRate
     camera.exposure_mode = 'sports'  # faster shuttter reduces blur
-    camera.exposure_compensation = -9 # slightly darker than default
+    camera.exposure_compensation = -5 # slightly darker than default
     camera.annotate_background = True # black rectangle behind white text for readibility
     camera.annotate_text = daytime
 
