@@ -12,7 +12,7 @@
 # Recommend to increase priority with 'sudo chrt -r -p 99 <pid>' 
 # to reduce variability of process scheduling delays
 #
-# 12 October 2014  J.Beale
+# 14 October 2014  J.Beale
 
 # To install needed Python components do:
 # sudo apt-get install python-picamera python-numpy python-scipy 
