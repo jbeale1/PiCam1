@@ -146,8 +146,8 @@ def processImage(camera):
     countPixels = changedPixels.size
     if (countPixels > 0):  # found something! (at least one pixel's worth of something)
       avgNovel = np.average(changedPixels)
-      np.clip(novel, 0.0, 1E15, out=novel) # force all negative elements of 'novel' matrix to 0
-      (ycent, xcent) = ndimage.measurements.center_of_mass(novel) # avg. position of motion. x is horizontal axis on image
+      np.clip(novel, 0.0, 1.0, out=novel) # force negative values to 0, and clip positive values to 1
+      (ycent, xcent) = ndimage.measurements.center_of_mass(novel) # (x,y) center of motion. x is horizontal axis on image
     else:
       avgNovel = 0
       (xcent, ycent) = (0, 0)  # nothing to see here, apparently
@@ -305,15 +305,15 @@ with picamera.PiCamera() as camera:
           if (countPixels >= pixThresh):
 	    eventRelTime = time.time() - segTime  # number of seconds since start of current H264 segment
 	tRemain = mCalcInterval - (time.time() - tLoop)
-#	if (tRemain < 0) or (lastCP != 0):
+#	if (tRemain < 0) or (lastCP >= 1):
 #          print("%d, %5.3f, %5.1f, %5.3f, %4.1f,%4.1f, %s" % \
 #		(countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, xcent, ycent, daytime))
-	if (not log.closed) and ( (tRemain < 0) or (lastCP != 0)):
+	if (not log.closed) and ( (tRemain < 0) or (lastCP >= 1)):
           log.write("%d, %5.3f, %5.1f, %5.3f, %4.1f,%4.1f, %s\n" % \
 		(countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, xcent, ycent, daytime))
+        lastCP = countPixels # remember the previous countPixels value
 	if (tRemain > 0):
           time.sleep(tRemain) # delay in between motion calculations
-        lastCP = countPixels # remember the previous countPixels value
 
 
 #   as currently written, we never actually reach here    
