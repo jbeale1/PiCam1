@@ -15,7 +15,7 @@
 # 15 October 2014  J.Beale
 
 # To install needed Python components do:
-# sudo apt-get install python-picamera python-numpy python-scipy 
+# sudo apt-get install python-picamera python-numpy python-scipy python-imaging
 
 from __future__ import print_function
 import io
@@ -23,7 +23,7 @@ import picamera, time
 from datetime import datetime  # for 'daytime' string
 import numpy as np  # for number-crunching on arrays
 from scipy import ndimage  # for array center-of-mass (location of new object)
-from PIL import Image # to export debug array as bitmap image
+from PIL import Image # only to export debug array as bitmap image
 
 global running  # have we done the initial array processing yet?
 global vPause   # true when we should stop grabbing frames
@@ -42,13 +42,13 @@ nGOPs = 4  # (nGOPs * sizeGOP) frames will be in one H264 video segment
 framesLead = 1 # how many frames before end-of-GOP we need to stop analyzing
 mCalcInterval = 2.0/frameRate # seconds in between motion calculations
 settleTime = 10.0 # how many seconds to do averaging before motion detect is valid
-debugMap = False # set 'True' to generate debug motion-bitmap .png files in picDir
+debugMap = True # set 'True' to generate debug motion-bitmap .png files in picDir
 
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
-dFactor = 2.5  # how many sigma above st.dev for diff value to qualify as motion pixel
+dFactor = 2.2  # how many sigma above st.dev for diff value to qualify as motion pixel
 stg = 160       # groupsize for rolling statistics
-pixThresh = 8  # how many novel pixels counts as an event
+pixThresh = 20  # how many novel pixels counts as an event
 # --------------------------------------------------
 sti = (1.0/stg) # inverse of statistics groupsize
 sti1 = 1.0 - sti # 1 - inverse of statistics groupsize
@@ -83,15 +83,24 @@ def date_gen(camera):
 def initMaps():
     global newmap, difmap, avgdif, mtStart, lastTime, stsum, sqsum, stdev
     global avgNovel, xcent, ycent
+    global expMask # edge-weighting mask for stabilizing exposure on background
     global fnum # count of debug images output
     global settled  # True when initial scene averaging has settled out
+    global countPixels # how many new pixels
+    global scaleFactor # factor by which new frame differs from background
 
     newmap = np.zeros((ysize,xsize),dtype=np.float32) # new image
     difmap = np.zeros((ysize,xsize),dtype=np.float32) # difference between new & avg
+    expMask = np.ones((ysize,xsize),dtype=np.float32) # exposure mask
+
     stsum  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average sum of pix values
     sqsum  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average sum of squared pix values
     stdev  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average standard deviation
     avgdif  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average difference
+
+    for i in range(int(ysize*0.25), int(ysize*0.75)):
+      for j in range(int(xsize*0.25),int(xsize*0.75)):
+        expMask[i,j] = 0
 
     mtStart = time.time()  # time that program starts
     lastTime = mtStart  # last time event detected
@@ -100,6 +109,8 @@ def initMaps():
     ycent = 0 #
     fnum = 0 # count of debug bitmaps output
     settled = False # have not yet settled out averaging
+    countPixels = 0  # how many new 'novel' pixels in this frame
+    scaleFactor = 1.0 # overall brightness scaling
 
 # saveFrame(): save a JPEG file
 def saveFrame(camera):
@@ -129,6 +140,7 @@ def processImage(camera):
     global avgNovel # average value of all 'novel' pixels > 0    
     global xcent, ycent # average location of detected object
     global fnum # count of debug images output
+    global scaleFactor # factor by which new frame differs from background
 
     newmap = pixvalScaleFactor * getFrame(camera)  # current pixmap  
 
@@ -138,8 +150,20 @@ def processImage(camera):
       running = True                    # ok, now we're running
       return False
 
+    scaledSum = np.divide(stsum, stg)  # scaledSum is the running average background
+    edgeAvg = np.average(newmap * expMask)  # mask out the center rectangle of size [x/2, y/2]
+    bkgAvg = np.average(scaledSum * expMask)
+    scaleFactor = bkgAvg / edgeAvg  # scale new image by this factor to cancel exposure change
+    if (scaleFactor < 0.33):
+      scaleFactor = 0.33
+    if (scaleFactor > 3.0):
+      scaleFactor = 3.0
+#    print("%5.3f" % scaleFactor) # DEBUG check what the scale factor is
+
+    snewmap = newmap * scaleFactor  # now newmap is normalized to average exposure 
+
 						   # avgmap = [stsum] / stg
-    difmap = newmap - np.divide(stsum, stg)        # difference pixmap (amount of per-pixel change)
+    difmap = snewmap - scaledSum        # difference pixmap (amount of per-pixel change)
     difmap = abs(difmap)                 # take absolute value (brightness may increase or decrease)
     magMax = np.amax(difmap)               # peak magnitude of change
 
@@ -170,7 +194,7 @@ def processImage(camera):
 
     if (countPixels > 0):
       (ycent, xcent) = ndimage.measurements.center_of_mass(novel.astype(int)) # (x,y) center of motion. x is horizontal axis on image
-      if (debugMap):  # generate bitmaps showing location of novel pixels?
+      if (debugMap) and (countPixels > pixThresh):  # generate bitmaps showing location of novel pixels
         novel = novel * 65535 # rescale 0-1 to fullscale for black/white display
         img = Image.fromarray(novel.astype(int))
         fnumstr = "%03d" % fnum
@@ -280,12 +304,10 @@ with picamera.PiCamera() as camera:
     global nGOP
     global firstType2 # if this is a 'type 2' frame, is it the first one in a row?
     global mCount     # count of motion events
-    global countPixels # how many new pixels
     global eventRelTime
     global segTime
 
     mCount = 0        # how many motion events detected
-    countPixels = 0   # how many pixels show novelty, this frame
     lastCP = 0        # previous reported countPixels value
     nGOP = 0	      # have not yet encoded any H264 GOPs yet
     okGo = True       # OK to grab frames
@@ -309,7 +331,9 @@ with picamera.PiCamera() as camera:
     camera.resolution = (cXRes, cYRes)
     camera.framerate = frameRate
     camera.exposure_mode = 'sports'  # faster shuttter reduces blur
-    camera.exposure_compensation = -5 # slightly darker than default
+#    camera.meter_mode = 'backlit' # largest central metering region
+    camera.meter_mode = 'average' #  mid-sized central metering region(?)
+    camera.exposure_compensation = -4 # slightly darker than default
     camera.annotate_background = True # black rectangle behind white text for readibility
     camera.annotate_text = daytime
 
@@ -333,15 +357,16 @@ with picamera.PiCamera() as camera:
           processImage(camera)  # do the number-crunching
           if (countPixels >= pixThresh):
 	    eventRelTime = time.time() - segTime  # number of seconds since start of current H264 segment
-	tRemain = mCalcInterval - (time.time() - tLoop)
-	if (tRemain < 0) or (lastCP >= 1):
-          print("%d, %5.3f, %d, %5.3f, %4.1f,%4.1f, %s" % \
-		(countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, xcent, ycent, daytime))
-	if (not log.closed) and ( (tRemain < 0) or (lastCP >= 1)):
+        tRemain = mCalcInterval - (time.time() - tLoop)
+	if (tRemain < 0) or (lastCP >= 1) or (countPixels >= 1):
+          print("%d, %5.3f, %d, %5.3f, %4.1f,%4.1f, %5.3f, %s" % \
+	    (countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, xcent, ycent, scaleFactor, daytime))
+#         print("%5.3f" % scaleFactor) # DEBUG check what the scale factor is
+	if (not log.closed) and ( (tRemain < 0) or (lastCP >= 1) or (countPixels >= 1)):
           log.write("%d, %5.3f, %d, %5.3f, %4.1f,%4.1f, %s\n" % \
 		(countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, xcent, ycent, daytime))
         lastCP = countPixels # remember the previous countPixels value
-	if (tRemain > 0):
+        if (tRemain > 0):
           time.sleep(tRemain) # delay in between motion calculations
 
 
