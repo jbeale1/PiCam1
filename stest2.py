@@ -12,7 +12,7 @@
 # Recommend to increase priority with 'sudo chrt -r -p 99 <pid>' 
 # to reduce variability of process scheduling delays
 #
-# 15 October 2014  J.Beale
+# 16 October 2014  J.Beale
 
 # To install needed Python components do:
 # sudo apt-get install python-picamera python-numpy python-scipy python-imaging
@@ -163,9 +163,8 @@ def processImage(camera):
     snewmap = newmap * scaleFactor  # now newmap is normalized to average exposure 
 
 						   # avgmap = [stsum] / stg
-    difmap = snewmap - scaledSum        # difference pixmap (amount of per-pixel change)
-    difmap = abs(difmap)                 # take absolute value (brightness may increase or decrease)
-    magMax = np.amax(difmap)               # peak magnitude of change
+    difmapA = abs(newmap - scaledSum)    # mag. diff. of orig pixmap (amount of per-pixel change)
+    difmapB = abs(snewmap - scaledSum)   # mag. diff. of scaled pixmap (amount of per-pixel change)
 
     stsum = (stsum * sti1) + newmap           # rolling sum of most recent 'stg' images (approximately)
     sqsum = (sqsum * sti1) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
@@ -180,35 +179,73 @@ def processImage(camera):
     np.clip(devsq, 0.1, 1E15, out=devsq)  # force all elements to have minimum value = 0.1
 	# adding 1.0 * pixvalScaleFactor is just saying every pixel has at least one count of std.dev
     stdev = pixvalScaleFactor + (1.0/stg) * np.power(devsq, 0.5)    # matrix holding rolling-average element-wise std.deviation
-    novel = difmap - (dFactor * stdev)   # novel pixels have difference exceeding (dFactor * standard.deviation)
+    novelA = difmapA - (dFactor * stdev)   # novel pixels have difference exceeding (dFactor * standard.deviation)
+    novelB = difmapB - (dFactor * stdev)   # same but using rescaled pixmap
 
-    condition = novel > 0   # boolean array, 1 where pixel with positive novelty value exists
-    changedPixels = np.extract(condition, novel)  # make a list containing only changed pixels
-    countPixels = changedPixels.size
-    if (countPixels > 0):  # found something! (at least one pixel's worth of something)
-      avgNovel = int( np.average(changedPixels)) # clipping to integer still leaves plenty of precision
-      np.clip(novel, 0.0, 1.0, out=novel) # force negative values to 0, and clip positive values to 1
-      moMap = ndimage.binary_dilation(novel)
-      novel = ndimage.binary_erosion(moMap, iterations=2)
-      countPixels = np.count_nonzero(novel) # recount how many 'novel' pixels there are after dilation + erosion
+    conditionA = novelA > 0   # boolean array, 1 where pixel with positive novelty value exists
+    changedPixelsA = np.extract(conditionA, novelA)  # make a list containing only changed pixels
+    conditionB = novelB > 0   # boolean array, 1 where pixel with positive novelty value exists
+    changedPixelsB = np.extract(conditionB, novelB)  # make a list containing only changed pixels
+    countPixelsA = changedPixelsA.size
+    countPixelsB = changedPixelsB.size
+#    if (countPixelsA > 1000) or (countPixelsB > 1000): # DEBUG: show both results (orig, scaled)
+#      print("* countPx: %d, %d" % (countPixelsA, countPixelsB)) 
 
-    if (countPixels > 0):
-      (ycent, xcent) = ndimage.measurements.center_of_mass(novel.astype(int)) # (x,y) center of motion. x is horizontal axis on image
-      if (debugMap) and (countPixels > pixThresh):  # generate bitmaps showing location of novel pixels
-        novel = novel * 65535 # rescale 0-1 to fullscale for black/white display
-        img = Image.fromarray(novel.astype(int))
-        fnumstr = "%03d" % fnum
-        novMapName = picDir + "A" + fnumstr + ".png"
-        img.save(novMapName)  # save as image for visual analysis
-        fnum = fnum + 1
+    if (countPixelsA > countPixelsB):  # conservative: assume the result with fewer pixels is right
+      countPixels = countPixelsB    # use rescaled image
+      changedPixels = changedPixelsB
+      if (countPixelsB > 0):  # found something! (at least one pixel's worth of something)
+        avgNovel = int( np.average(changedPixelsB)) # clipping to integer still leaves plenty of precision
+        np.clip(novelB, 0.0, 1.0, out=novelB) # force negative values to 0, and clip positive values to 1
+        moMap = ndimage.binary_dilation(novelB)
+        novelB = ndimage.binary_erosion(moMap, iterations=2)
+        countPixels = np.count_nonzero(novelB) # recount how many 'novel' pixels there are after dilation + erosion
+
+      if (countPixels > 0):
+        (ycent, xcent) = ndimage.measurements.center_of_mass(novelB.astype(int)) # (x,y) center of motion. x is horizontal axis on image
+        if (debugMap) and (countPixels > pixThresh):  # generate bitmaps showing location of novel pixels
+          novelB = novelB * 65535 # rescale 0-1 to fullscale for black/white display
+          img = Image.fromarray(novelB.astype(int))
+          fnumstr = "%03d" % fnum
+          novMapName = picDir + "A" + fnumstr + ".png"
+          img.save(novMapName)  # save as image for visual analysis
+          fnum = fnum + 1
+      else:
+        avgNovel = 0
+        (xcent, ycent) = (0, 0)  # nothing to see here, apparently
+
     else:
-      avgNovel = 0
-      (xcent, ycent) = (0, 0)  # nothing to see here, apparently
+      countPixels = countPixelsA  # use original image
+      changedPixels = changedPixelsA
+      scaleFactor = 1.0 # flag for debug printout that we ended up using unscaled image
+
+      if (countPixelsA > 0):  # found something! (at least one pixel's worth of something)
+        avgNovel = int( np.average(changedPixelsA)) # clipping to integer still leaves plenty of precision
+        np.clip(novelA, 0.0, 1.0, out=novelA) # force negative values to 0, and clip positive values to 1
+        moMap = ndimage.binary_dilation(novelA)
+        novelA = ndimage.binary_erosion(moMap, iterations=2)
+        countPixels = np.count_nonzero(novelA) # recount how many 'novel' pixels there are after dilation + erosion
+
+      if (countPixels > 0):
+        (ycent, xcent) = ndimage.measurements.center_of_mass(novelA.astype(int)) # (x,y) center of motion. x is horizontal axis on image
+        if (debugMap) and (countPixels > pixThresh):  # generate bitmaps showing location of novel pixels
+          novelA = novelA * 65535 # rescale 0-1 to fullscale for black/white display
+          img = Image.fromarray(novelA.astype(int))
+          fnumstr = "%03d" % fnum
+          novMapName = picDir + "A" + fnumstr + ".png"
+          img.save(novMapName)  # save as image for visual analysis
+          fnum = fnum + 1
+      else:
+        avgNovel = 0
+        (xcent, ycent) = (0, 0)  # nothing to see here, apparently
+
 
 # -- END processImage()    
   
 # -------------------------------------------------------------------------
 # the 'write()' member of this class is called whenever a buffer of image data is ready
+
+
 
 class MyCustomOutput(object):
 
@@ -358,11 +395,11 @@ with picamera.PiCamera() as camera:
           if (countPixels >= pixThresh):
 	    eventRelTime = time.time() - segTime  # number of seconds since start of current H264 segment
         tRemain = mCalcInterval - (time.time() - tLoop)
-	if (tRemain < 0) or (lastCP >= 1) or (countPixels >= 1):
+	if (lastCP >= 1) or (countPixels >= 1):
           print("%d, %5.3f, %d, %5.3f, %4.1f,%4.1f, %5.3f, %s" % \
 	    (countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, xcent, ycent, scaleFactor, daytime))
 #         print("%5.3f" % scaleFactor) # DEBUG check what the scale factor is
-	if (not log.closed) and ( (tRemain < 0) or (lastCP >= 1) or (countPixels >= 1)):
+	if (not log.closed) and ( (lastCP >= 1) or (countPixels >= 1)):
           log.write("%d, %5.3f, %d, %5.3f, %4.1f,%4.1f, %s\n" % \
 		(countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, xcent, ycent, daytime))
         lastCP = countPixels # remember the previous countPixels value
