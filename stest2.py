@@ -142,24 +142,29 @@ def processImage(camera):
     global xcent, ycent # average location of detected object
     global fnum # count of debug images output
     global scaleFactor # factor by which new frame differs from background
-
-    newmap = pixvalScaleFactor * getFrame(camera)  # current pixmap  
+    global x0,y0,x1,y1  # coordinates of bounding box
 
     if not running:  # first time ever through this function?
+      time.sleep(5) # let autoexposure settle
+      newmap = pixvalScaleFactor * getFrame(camera)  # current pixmap  
       stsum = stg * newmap         # call the sum over 'stg' elements just stg * initial frame
       sqsum = stg * np.power(newmap, 2) # initialze sum of squares
       running = True                    # ok, now we're running
       return False
+    else:
+      newmap = pixvalScaleFactor * getFrame(camera)  # current pixmap  
+
 
     scaledSum = np.divide(stsum, stg)  # scaledSum is the running average background
     edgeAvg = np.average(newmap * expMask)  # mask out the center rectangle of size [x/2, y/2]
     bkgAvg = np.average(scaledSum * expMask)
     scaleFactor = bkgAvg / edgeAvg  # scale new image by this factor to cancel exposure change
+
+#    print("SF: %5.3f" % scaleFactor) # DEBUG check what the scale factor is
     if (scaleFactor < 0.33):
       scaleFactor = 0.33
     if (scaleFactor > 3.0):
       scaleFactor = 3.0
-#    print("%5.3f" % scaleFactor) # DEBUG check what the scale factor is
 
     snewmap = newmap * scaleFactor  # now newmap is normalized to average exposure 
 
@@ -176,10 +181,6 @@ def processImage(camera):
         settled = True
       return # stop right here, don't need to preceed before settling for valid motion detect
 
-    devsq = (stg * sqsum) - np.power(stsum, 2)  # variance, had better not be negative
-    np.clip(devsq, 0.1, 1E15, out=devsq)  # force all elements to have minimum value = 0.1
-	# adding 1.0 * pixvalScaleFactor is just saying every pixel has at least one count of std.dev
-    stdev = pixvalScaleFactor + (1.0/stg) * np.power(devsq, 0.5)    # matrix holding rolling-average element-wise std.deviation
     novelA = difmapA - (dFactor * stdev)   # novel pixels have difference exceeding (dFactor * standard.deviation)
     novelB = difmapB - (dFactor * stdev)   # same but using rescaled pixmap
 
@@ -190,12 +191,19 @@ def processImage(camera):
     countPixelsA = changedPixelsA.size
     countPixelsB = changedPixelsB.size
 
+# ==== Compute long-term average and standard deviation matrixes ====
+
     if (countPixelsA < pixThresh):  # if we aren't seeing anything new this frame, adapt background normally
       stsum = (stsum * sti1) + newmap           # rolling sum of most recent 'stg' images (approximately)
       sqsum = (sqsum * sti1) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
     else:   # if there's something new this frame, adapt background at 1/10 the normal rate
       stsum = (stsum * sti1A) + (0.1 * newmap)           # rolling sum of most recent 'stg' images (approximately)
       sqsum = (sqsum * sti1A) + (0.1 * np.power(newmap, 2)) # rolling sum-of-squares of 'stg' images (approx)
+
+    devsq = (stg * sqsum) - np.power(stsum, 2)  # variance, had better not be negative
+    np.clip(devsq, 0.1, 1E15, out=devsq)  # force all elements to have minimum value = 0.1
+	# adding 1.0 * pixvalScaleFactor is just saying every pixel has at least one count of std.dev
+    stdev = pixvalScaleFactor + (1.0/stg) * np.power(devsq, 0.5)    # matrix holding rolling-average element-wise std.deviation
 
 
 #    if (countPixelsA > 1000) or (countPixelsB > 1000): # DEBUG: show both results (orig, scaled)
@@ -208,14 +216,13 @@ def processImage(camera):
         avgNovel = int( np.average(changedPixelsB)) # clipping to integer still leaves plenty of precision
         np.clip(novelB, 0.0, 1.0, out=novelB) # force negative values to 0, and clip positive values to 1
         moMap = ndimage.binary_dilation(novelB)
-        novelB = ndimage.binary_erosion(moMap, iterations=2)
-        countPixels = np.count_nonzero(novelB) # recount how many 'novel' pixels there are after dilation + erosion
+        novelC = ndimage.binary_erosion(moMap, iterations=2)
+        countPixels = np.count_nonzero(novelC) # recount how many 'novel' pixels there are after dilation + erosion
 
       if (countPixels > 0):
         (ycent, xcent) = ndimage.measurements.center_of_mass(novelB.astype(int)) # (x,y) center of motion. x is horizontal axis on image
         if (debugMap) and (countPixels > pixThresh):  # generate bitmaps showing location of novel pixels
-          novelB = novelB * 65535 # rescale 0-1 to fullscale for black/white display
-          img = Image.fromarray(novelB.astype(int))
+          img = Image.fromarray(65535 * novelC.astype(int))
           fnumstr = "%03d" % fnum
           novMapName = picDir + "A" + fnumstr + ".png"
           img.save(novMapName)  # save as image for visual analysis
@@ -233,14 +240,13 @@ def processImage(camera):
         avgNovel = int( np.average(changedPixelsA)) # clipping to integer still leaves plenty of precision
         np.clip(novelA, 0.0, 1.0, out=novelA) # force negative values to 0, and clip positive values to 1
         moMap = ndimage.binary_dilation(novelA)
-        novelA = ndimage.binary_erosion(moMap, iterations=2)
-        countPixels = np.count_nonzero(novelA) # recount how many 'novel' pixels there are after dilation + erosion
+        novelC = ndimage.binary_erosion(moMap, iterations=2)
+        countPixels = np.count_nonzero(novelC) # recount how many 'novel' pixels there are after dilation + erosion
 
       if (countPixels > 0):
         (ycent, xcent) = ndimage.measurements.center_of_mass(novelA.astype(int)) # (x,y) center of motion. x is horizontal axis on image
         if (debugMap) and (countPixels > pixThresh):  # generate bitmaps showing location of novel pixels
-          novelA = novelA * 65535 # rescale 0-1 to fullscale for black/white display
-          img = Image.fromarray(novelA.astype(int))
+          img = Image.fromarray(65535 * novelC.astype(int))
           fnumstr = "%03d" % fnum
           novMapName = picDir + "A" + fnumstr + ".png"
           img.save(novMapName)  # save as image for visual analysis
@@ -249,6 +255,12 @@ def processImage(camera):
         avgNovel = 0
         (xcent, ycent) = (0, 0)  # nothing to see here, apparently
 
+    if (countPixels > 0):      # compute bounding box coordinates
+      B = np.argwhere(novelC.astype(int))
+#      print(B)
+      (y0, x0), (y1, x1) = B.min(0), B.max(0) + 1  # coordinates of bounding box
+    else:
+      (y0, x0), (y1, x1) = (0, 0), (0, 0) # no objects found
 
 # -- END processImage()    
   
@@ -355,7 +367,7 @@ with picamera.PiCamera() as camera:
     global segTime
 
     mCount = 0        # how many motion events detected
-    lastCP = 0        # previous reported countPixels value
+    lastCP = 0.0        # previous reported countPixels value
     nGOP = 0	      # have not yet encoded any H264 GOPs yet
     okGo = True       # OK to grab frames
     vPause = False    # OK to grab frames
@@ -405,15 +417,22 @@ with picamera.PiCamera() as camera:
           if (countPixels >= pixThresh):
 	    eventRelTime = time.time() - segTime  # number of seconds since start of current H264 segment
         tRemain = mCalcInterval - (time.time() - tLoop)
-
-	if (lastCP >= pixThresh) or (countPixels >= pixThresh):
-          print("%d, %5.3f, %d, %5.3f, %4.1f,%4.1f, %5.3f, %s" % \
-	    (countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, xcent, ycent, scaleFactor, daytime))
+	
+	if (scaleFactor < 1.0):  # at nighttime, improve detection of small but very bright features 
+	  pSF = scaleFactor
+	else:
+	  pSF = 1.0
+        pixThreshEff = 1.0*pixThresh * pSF # effective pixel threshold
+	if (lastCP >= pixThresh) or (countPixels >= (pixThreshEff)):
+          print("%d, %5.3f, %d, %5.3f, %4.1f,%4.1f, %5.1f, %d,%d, %d,%d, %s" % \
+	    (countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, \
+             xcent, ycent, pixThreshEff, x0,y0, x1,y1, daytime))
 #         print("%5.3f" % scaleFactor) # DEBUG check what the scale factor is
-	if (not log.closed) and ( (lastCP >= pixThresh) or (countPixels >= pixThresh)):
-          log.write("%d, %5.3f, %d, %5.3f, %4.1f,%4.1f, %s\n" % \
-		(countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, xcent, ycent, daytime))
-        lastCP = countPixels # remember the previous countPixels value
+	if (not log.closed) and ( (lastCP >= pixThresh) or (countPixels >= (pixThreshEff))):
+          log.write("%d, %5.3f, %d, %5.3f, %4.1f,%4.1f, %5.1f, %d,%d, %d,%d, %s\n" % \
+	    (countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, \
+             xcent, ycent, scaleFactor, x0,y0, x1,y1, daytime))
+        lastCP = 1.0*countPixels / pSF # remember the previous (scaled) countPixels value
         if (tRemain > 0):
           time.sleep(tRemain) # delay in between motion calculations
 
