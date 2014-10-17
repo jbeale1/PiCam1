@@ -41,18 +41,19 @@ sizeGOP = 60 # number of I+P frames in one GOP
 nGOPs = 4  # (nGOPs * sizeGOP) frames will be in one H264 video segment
 framesLead = 1 # how many frames before end-of-GOP we need to stop analyzing
 mCalcInterval = 2.0/frameRate # seconds in between motion calculations
-settleTime = 10.0 # how many seconds to do averaging before motion detect is valid
+settleTime = 12.0 # how many seconds to do averaging before motion detect is valid
 debugMap = True # set 'True' to generate debug motion-bitmap .png files in picDir
 
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
-dFactor = 2.2  # how many sigma above st.dev for diff value to qualify as motion pixel
-stg = 160       # groupsize for rolling statistics
-pixThresh = 20  # how many novel pixels counts as an event
+dFactor = 1.8  # how many sigma above st.dev for diff value to qualify as motion pixel
+stg = 160.0    # groupsize for rolling statistics
+pixThresh = 18  # how many novel pixels counts as an event
 # --------------------------------------------------
 sti = (1.0/stg) # inverse of statistics groupsize
 sti1 = 1.0 - sti # 1 - inverse of statistics groupsize
-
+stiA = (1.0/(stg+0.9)) # to use when motion is detected
+sti1A = 1.0 - stiA # to use when motion is detected
 
 running = False  # have we done the initial array processing yet?
 
@@ -166,10 +167,10 @@ def processImage(camera):
     difmapA = abs(newmap - scaledSum)    # mag. diff. of orig pixmap (amount of per-pixel change)
     difmapB = abs(snewmap - scaledSum)   # mag. diff. of scaled pixmap (amount of per-pixel change)
 
-    stsum = (stsum * sti1) + newmap           # rolling sum of most recent 'stg' images (approximately)
-    sqsum = (sqsum * sti1) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
 
     if not settled:
+      stsum = (stsum * sti1) + newmap           # rolling sum of most recent 'stg' images (approximately)
+      sqsum = (sqsum * sti1) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
       runTime = time.time() - mtStart # how many seconds we have been running
       if (runTime > settleTime):
         settled = True
@@ -188,6 +189,15 @@ def processImage(camera):
     changedPixelsB = np.extract(conditionB, novelB)  # make a list containing only changed pixels
     countPixelsA = changedPixelsA.size
     countPixelsB = changedPixelsB.size
+
+    if (countPixelsA < pixThresh):  # if we aren't seeing anything new this frame, adapt background normally
+      stsum = (stsum * sti1) + newmap           # rolling sum of most recent 'stg' images (approximately)
+      sqsum = (sqsum * sti1) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
+    else:   # if there's something new this frame, adapt background at 1/10 the normal rate
+      stsum = (stsum * sti1A) + (0.1 * newmap)           # rolling sum of most recent 'stg' images (approximately)
+      sqsum = (sqsum * sti1A) + (0.1 * np.power(newmap, 2)) # rolling sum-of-squares of 'stg' images (approx)
+
+
 #    if (countPixelsA > 1000) or (countPixelsB > 1000): # DEBUG: show both results (orig, scaled)
 #      print("* countPx: %d, %d" % (countPixelsA, countPixelsB)) 
 
@@ -395,11 +405,12 @@ with picamera.PiCamera() as camera:
           if (countPixels >= pixThresh):
 	    eventRelTime = time.time() - segTime  # number of seconds since start of current H264 segment
         tRemain = mCalcInterval - (time.time() - tLoop)
-	if (lastCP >= 1) or (countPixels >= 1):
+
+	if (lastCP >= pixThresh) or (countPixels >= pixThresh):
           print("%d, %5.3f, %d, %5.3f, %4.1f,%4.1f, %5.3f, %s" % \
 	    (countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, xcent, ycent, scaleFactor, daytime))
 #         print("%5.3f" % scaleFactor) # DEBUG check what the scale factor is
-	if (not log.closed) and ( (lastCP >= 1) or (countPixels >= 1)):
+	if (not log.closed) and ( (lastCP >= pixThresh) or (countPixels >= pixThresh)):
           log.write("%d, %5.3f, %d, %5.3f, %4.1f,%4.1f, %s\n" % \
 		(countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, xcent, ycent, daytime))
         lastCP = countPixels # remember the previous countPixels value
