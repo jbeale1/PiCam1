@@ -12,7 +12,7 @@
 # Recommend to increase priority with 'sudo chrt -r -p 99 <pid>' 
 # to reduce variability of process scheduling delays
 #
-# 16 October 2014  J.Beale
+# 17 October 2014  J.Beale
 
 # To install needed Python components do:
 # sudo apt-get install python-picamera python-numpy python-scipy python-imaging
@@ -42,13 +42,14 @@ nGOPs = 4  # (nGOPs * sizeGOP) frames will be in one H264 video segment
 framesLead = 1 # how many frames before end-of-GOP we need to stop analyzing
 mCalcInterval = 2.0/frameRate # seconds in between motion calculations
 settleTime = 12.0 # how many seconds to do averaging before motion detect is valid
-debugMap = True # set 'True' to generate debug motion-bitmap .png files in picDir
+dCratio = 10 # decimation factor, how many-fold to reduce background avg.rate when motion
+debugMap = False # set 'True' to generate debug motion-bitmap .png files in picDir
 
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
-dFactor = 1.8  # how many sigma above st.dev for diff value to qualify as motion pixel
-stg = 160.0    # groupsize for rolling statistics
-pixThresh = 18  # how many novel pixels counts as an event
+dFactor = 1.6  # how many sigma above st.dev for diff value to qualify as motion pixel
+stg = 30.0    # groupsize for rolling statistics
+pixThresh = 16  # how many novel pixels counts as an event
 # --------------------------------------------------
 sti = (1.0/stg) # inverse of statistics groupsize
 sti1 = 1.0 - sti # 1 - inverse of statistics groupsize
@@ -89,6 +90,8 @@ def initMaps():
     global settled  # True when initial scene averaging has settled out
     global countPixels # how many new pixels
     global scaleFactor # factor by which new frame differs from background
+    global sSmax, sSmin # maximum and minimum values of average background
+    global dCtr # decimation counter to reduce background updates when motion detected
 
     newmap = np.zeros((ysize,xsize),dtype=np.float32) # new image
     difmap = np.zeros((ysize,xsize),dtype=np.float32) # difference between new & avg
@@ -112,6 +115,9 @@ def initMaps():
     settled = False # have not yet settled out averaging
     countPixels = 0  # how many new 'novel' pixels in this frame
     scaleFactor = 1.0 # overall brightness scaling
+    sSmax = 0
+    sSmin = 0
+    dCtr = 1 # need 9 more before a background sample
 
 # saveFrame(): save a JPEG file
 def saveFrame(camera):
@@ -143,6 +149,8 @@ def processImage(camera):
     global fnum # count of debug images output
     global scaleFactor # factor by which new frame differs from background
     global x0,y0,x1,y1  # coordinates of bounding box
+    global sSmax, sSmin # maximum and minimum values of average background
+    global dCtr # decimation counter to reduce background updates when motion detected
 
     if not running:  # first time ever through this function?
       time.sleep(5) # let autoexposure settle
@@ -159,6 +167,9 @@ def processImage(camera):
     edgeAvg = np.average(newmap * expMask)  # mask out the center rectangle of size [x/2, y/2]
     bkgAvg = np.average(scaledSum * expMask)
     scaleFactor = bkgAvg / edgeAvg  # scale new image by this factor to cancel exposure change
+
+    sSmax = np.amax(scaledSum)  # find maximum value of array
+    sSmin = np.amin(scaledSum)  # find minimum value of array
 
 #    print("SF: %5.3f" % scaleFactor) # DEBUG check what the scale factor is
     if (scaleFactor < 0.33):
@@ -193,12 +204,18 @@ def processImage(camera):
 
 # ==== Compute long-term average and standard deviation matrixes ====
 
-    if (countPixelsA < pixThresh):  # if we aren't seeing anything new this frame, adapt background normally
+# if we aren't seeing anything new this frame, adapt background normally
+# but if motion, adapt bkgnd only 1 out of 'dCratio' passes (and not until 'dCratio' consecutive frames)
+
+    if (countPixelsA < pixThresh) or (dCtr == 0):  
       stsum = (stsum * sti1) + newmap           # rolling sum of most recent 'stg' images (approximately)
       sqsum = (sqsum * sti1) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
-    else:   # if there's something new this frame, adapt background at 1/10 the normal rate
-      stsum = (stsum * sti1A) + (0.1 * newmap)           # rolling sum of most recent 'stg' images (approximately)
-      sqsum = (sqsum * sti1A) + (0.1 * np.power(newmap, 2)) # rolling sum-of-squares of 'stg' images (approx)
+    if (countPixelsA >= pixThresh):  # motion is detected
+      dCtr = dCtr + 1
+      if (dCtr > dCratio):
+        dCtr = 0
+    else:
+      dCtr = 1
 
     devsq = (stg * sqsum) - np.power(stsum, 2)  # variance, had better not be negative
     np.clip(devsq, 0.1, 1E15, out=devsq)  # force all elements to have minimum value = 0.1
@@ -423,15 +440,16 @@ with picamera.PiCamera() as camera:
 	else:
 	  pSF = 1.0
         pixThreshEff = 1.0*pixThresh * pSF # effective pixel threshold
+        avgNovel = min(avgNovel,9999) # just for output formatting, so it will use at most 4 characters
 	if (lastCP >= pixThresh) or (countPixels >= (pixThreshEff)):
-          print("%d, %5.3f, %d, %5.3f, %4.1f,%4.1f, %5.1f, %d,%d, %d,%d, %s" % \
+          print("%4d, %6.3f, %4d, %6.3f, %4.1f,%4.1f, %4.1f, %2d,%2d, %2d,%2d, %5.1f,%5.1f, %s" % \
 	    (countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, \
-             xcent, ycent, pixThreshEff, x0,y0, x1,y1, daytime))
+             xcent, ycent, pixThreshEff, x0,y0, x1,y1, sSmin,sSmax, daytime))
 #         print("%5.3f" % scaleFactor) # DEBUG check what the scale factor is
 	if (not log.closed) and ( (lastCP >= pixThresh) or (countPixels >= (pixThreshEff))):
-          log.write("%d, %5.3f, %d, %5.3f, %4.1f,%4.1f, %5.1f, %d,%d, %d,%d, %s\n" % \
+          log.write("%4d, %6.3f, %4d, %6.3f, %4.1f,%4.1f, %4.1f, %2d,%2d, %2d,%2d, %5.1f,%5.1f %s\n" % \
 	    (countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, \
-             xcent, ycent, scaleFactor, x0,y0, x1,y1, daytime))
+             xcent, ycent, scaleFactor, x0,y0, x1,y1, sSmin,sSmax, daytime))
         lastCP = 1.0*countPixels / pSF # remember the previous (scaled) countPixels value
         if (tRemain > 0):
           time.sleep(tRemain) # delay in between motion calculations
