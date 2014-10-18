@@ -12,7 +12,7 @@
 # Recommend to increase priority with 'sudo chrt -r -p 99 <pid>' 
 # to reduce variability of process scheduling delays
 #
-# 17 October 2014  J.Beale
+# 18 October 2014  J.Beale
 
 # To install needed Python components do:
 # sudo apt-get install python-picamera python-numpy python-scipy python-imaging
@@ -47,8 +47,9 @@ debugMap = False # set 'True' to generate debug motion-bitmap .png files in picD
 
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
-dFactor = 1.6  # how many sigma above st.dev for diff value to qualify as motion pixel
-stg = 30.0    # groupsize for rolling statistics
+# dFactor : how many sigma above st.dev for diff value to qualify as motion pixel
+dFactor = 1.85  # <= MOST CRITICAL PARAMETER 
+stg = 25.0    # groupsize for rolling statistics
 pixThresh = 16  # how many novel pixels counts as an event
 # --------------------------------------------------
 sti = (1.0/stg) # inverse of statistics groupsize
