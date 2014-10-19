@@ -12,7 +12,7 @@
 # Recommend to increase priority with 'sudo chrt -r -p 99 <pid>' 
 # to reduce variability of process scheduling delays
 #
-# 18 October 2014  J.Beale
+# 19 October 2014  J.Beale
 
 # To install needed Python components do:
 # sudo apt-get install python-picamera python-numpy python-scipy python-imaging
@@ -42,7 +42,6 @@ nGOPs = 4  # (nGOPs * sizeGOP) frames will be in one H264 video segment
 framesLead = 1 # how many frames before end-of-GOP we need to stop analyzing
 mCalcInterval = 2.0/frameRate # seconds in between motion calculations
 settleTime = 12.0 # how many seconds to do averaging before motion detect is valid
-dCratio = 5 # decimation factor, how many-fold to reduce background avg.rate when motion
 debugMap = False # set 'True' to generate debug motion-bitmap .png files in picDir
 
 cXRes = 1920   # camera capture X resolution (video file res)
@@ -83,7 +82,7 @@ def date_gen(camera):
 
 # initMaps(): initialize pixel maps with correct size and data type
 def initMaps():
-    global newmap, difmap, avgdif, mtStart, lastTime, stavg, sqsum, stdev
+    global newmap, difmap, avgdif, mtStart, lastTime, stavg, sqavg, stdev
     global avgNovel, xcent, ycent
     global expMask # edge-weighting mask for stabilizing exposure on background
     global fnum # count of debug images output
@@ -91,14 +90,13 @@ def initMaps():
     global countPixels # how many new pixels
     global scaleFactor # factor by which new frame differs from background
     global sSmax, sSmin # maximum and minimum values of average background
-    global dCtr # decimation counter to reduce background updates when motion detected
 
     newmap = np.zeros((ysize,xsize),dtype=np.float32) # new image
     difmap = np.zeros((ysize,xsize),dtype=np.float32) # difference between new & avg
     expMask = np.ones((ysize,xsize),dtype=np.float32) # exposure mask
 
     stavg  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average of pix values
-    sqsum  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average sum of squared pix values
+    sqavg  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average sum of squared pix values
     stdev  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average standard deviation
     avgdif  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average difference
 
@@ -117,7 +115,6 @@ def initMaps():
     scaleFactor = 1.0 # overall brightness scaling
     sSmax = 0
     sSmin = 0
-    dCtr = 1 # need 9 more before a background sample
 
 # saveFrame(): save a JPEG file
 def saveFrame(camera):
@@ -136,11 +133,12 @@ def getFrame(camera):
     return np.fromfile(stream, dtype=np.uint8, count=xsize*ysize).reshape((ysize, xsize))
   
 # processImage(): do some computations on low-res version of current image
+
 def processImage(camera):
     global running  # have we done initial array processing yet?
     global settled  # True when initial scene averaging has settled out
     global stavg # (matrix) rolling average of pixvals
-    global sqsum # (matrix) rolling average sum of squared pixvals
+    global sqavg # (matrix) rolling average sum of squared pixvals
     global stdev # (matrix) rolling average standard deviation of pixels
     global initPass # how many initial passes we're doing
     global countPixels # how many pixels show novelty value this frame
@@ -150,13 +148,12 @@ def processImage(camera):
     global scaleFactor # factor by which new frame differs from background
     global x0,y0,x1,y1  # coordinates of bounding box
     global sSmax, sSmin # maximum and minimum values of average background
-    global dCtr # decimation counter to reduce background updates when motion detected
 
     if not running:  # first time ever through this function?
       time.sleep(5) # let autoexposure settle
       newmap = pixvalScaleFactor * getFrame(camera)  # current pixmap  
       stavg = newmap         # call the average over 'stg' elements just the initial frame
-      sqsum = stg * np.power(newmap, 2) # initialze sum of squares
+      sqavg = np.power(newmap, 2) # initialize sum of squares
       running = True                    # ok, now we're running
       return False
     else:
@@ -182,8 +179,8 @@ def processImage(camera):
     difmapB = abs(snewmap - stavg)   # mag. diff. of scaled pixmap (amount of per-pixel change)
 
     if not settled:
-      stavg = (stavg * (1.0-sti)) + (newmap * sti)   # rolling sum of most recent 'stg' images (approximately)
-      sqsum = (sqsum * (1.0-sti)) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
+      stavg = stavg + sti * (newmap - stavg)   # rolling avg of most recent 'stg' images (approximately)
+      sqavg = sqavg + sti * (np.power(newmap, 2) - sqavg)  # rolling avg square of images (approx)
       runTime = time.time() - mtStart # how many seconds we have been running
       if (runTime > settleTime):
         settled = True
@@ -201,22 +198,17 @@ def processImage(camera):
 
 # ==== Compute long-term average and standard deviation matrixes ====
 
-# if we aren't seeing anything new this frame, adapt background normally
-# but if motion, adapt bkgnd only 1 out of 'dCratio' passes (and not until 'dCratio' consecutive frames)
+# if we aren't seeing anything new this frame, adapt background average (stavg, sqavg) normally
+# but if motion, adapt stavg and sqavg more slowly
 
     if (countPixelsA < pixThresh):  
-      stavg = (stavg * (1.0-sti)) + (newmap * sti)   # rolling avg of most recent 'stg' images (approximately)
-      sqsum = (sqsum * (1.0-sti)) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
+      stavg = stavg + sti * (newmap - stavg)   # rolling avg of most recent 'stg' images (approximately)
+      sqavg = sqavg + sti * (np.power(newmap, 2) - sqavg)  # rolling avg square of images (approx)
     if (countPixelsA >= pixThresh):  # motion is detected
-      dCtr = dCtr + 1
-      if (dCtr > dCratio):
-        dCtr = 0
-        stavg = (stavg * (1.0-sti2)) + (newmap * sti2)   # rolling avg of most recent 'stg' images (approximately)
-#        sqsum = (sqsum * (1.0-sti)) + np.power(newmap, 2) # rolling sum-of-squares of 'stg' images (approx)
-    else:
-      dCtr = 1
+      stavg = stavg + sti2 * (newmap - stavg)   # rolling avg of most recent 'stg' images (approximately)
+      sqavg = sqavg + sti2 * (np.power(newmap, 2) - sqavg)  # rolling avg square of images (approx)
 
-    devsq = (stg * sqsum) - np.power((stavg*stg), 2)  # variance, had better not be negative
+    devsq = (stg * stg * sqavg) - np.power((stavg*stg), 2)  # variance, had better not be negative
     np.clip(devsq, 0.1, 1E15, out=devsq)  # force all elements to have minimum value = 0.1
 	# adding 1.0 * pixvalScaleFactor is just saying every pixel has at least one count of std.dev
     stdev = pixvalScaleFactor + (1.0/stg) * np.power(devsq, 0.5)    # matrix holding rolling-average element-wise std.deviation
