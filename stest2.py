@@ -47,8 +47,7 @@ debugMap = False # set 'True' to generate debug motion-bitmap .png files in picD
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
 # dFactor : how many sigma above st.dev for diff value to qualify as motion pixel
-#dFactor = 2.5  # <= MOST CRITICAL PARAMETER 
-dFactor = 3  # <= MOST CRITICAL PARAMETER 
+dFactor = 3.5  # <= MOST CRITICAL PARAMETER 
 stg = 25.0    # groupsize for rolling statistics
 pixThresh = 25  # how many novel pixels counts as an event
 # --------------------------------------------------
@@ -432,16 +431,16 @@ with picamera.PiCamera() as camera:
 	  pSF = 1.0
         pixThreshEff = 1.0*pixThresh * pSF # effective pixel threshold
         avgNovel = min(avgNovel,9999) # just for output formatting, so it will use at most 4 characters
-	if (lastCP >= pixThresh) or (countPixels >= (pixThreshEff)):
+	if (lastCP > 0) or (countPixels >= (pixThreshEff)):
           print("%4d, %6.3f, %4d, %6.3f, %4.1f,%4.1f, %4.1f, %2d,%2d, %2d,%2d, %5.1f,%5.1f, %s" % \
 	    (countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, \
              xcent, ycent, pixThreshEff, x0,y0, x1,y1, sSmin,sSmax, daytime))
 #         print("%5.3f" % scaleFactor) # DEBUG check what the scale factor is
-	if (not log.closed) and ( (lastCP >= pixThresh) or (countPixels >= (pixThreshEff))):
-          log.write("%4d, %6.3f, %4d, %6.3f, %4.1f,%4.1f, %4.1f, %2d,%2d, %2d,%2d, %5.1f,%5.1f %s\n" % \
+	if (not log.closed) and ( (lastCP > 0) or (countPixels >= (pixThreshEff))):
+          log.write("%4d, %6.3f, %4d, %6.3f, %4.1f,%4.1f, %4.1f, %2d,%2d, %2d,%2d, %5.1f,%5.1f, %s\n" % \
 	    (countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, \
              xcent, ycent, scaleFactor, x0,y0, x1,y1, sSmin,sSmax, daytime))
-        lastCP = 1.0*countPixels / pSF # remember the previous (scaled) countPixels value
+          lastCP = countPixels  # remember the previous countPixels value
         if (tRemain > 0):
           time.sleep(tRemain) # delay in between motion calculations
 
