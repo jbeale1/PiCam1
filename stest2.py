@@ -102,7 +102,7 @@ def initMaps():
     stdev  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average standard deviation
     avgdif  = np.zeros((ysize,xsize),dtype=np.int32) # rolling average difference
 
-    for i in range(int(ysize*0.25), int(ysize*0.75)):
+    for i in range(int(ysize*0), int(ysize*0.75)):
       for j in range(int(xsize*0.25),int(xsize*0.75)):
         expMask[i,j] = 0
 
@@ -166,8 +166,8 @@ def processImage(camera):
 
 #    print("raw: %5.3f new: %5.3f" % (rawmap[1,1], newmap[1,1]))
 
-    edgeAvg = np.average(newmap * expMask)  # mask out the center rectangle of size [x/2, y/2]
-    bkgAvg = np.average(stavg * expMask)
+    edgeAvg = np.average(newmap * expMask)  # mask out part of the new image 
+    bkgAvg = np.average(stavg * expMask)  # mask out part of the background
     scaleFactor = bkgAvg / edgeAvg  # scale new image by this factor to cancel exposure change
 
     sSmax = np.amax(stavg)  # find maximum value of array
@@ -227,7 +227,8 @@ def processImage(camera):
 #    if (countPixelsA > 1000) or (countPixelsB > 1000): # DEBUG: show both results (orig, scaled)
 #      print("* countPx: %d, %d" % (countPixelsA, countPixelsB)) 
 
-    if (countPixelsA > countPixelsB):  # conservative: assume the result with fewer pixels is right
+    if (countPixelsA > countPixelsB):  # conservative detection: fewer motion pixels is the better choice
+#    if ( True ):  # force use of rescaled image
       countPixels = countPixelsB    # use rescaled image
       changedPixels = changedPixelsB
       if (countPixelsB > 0):  # found something! (at least one pixel's worth of something)
