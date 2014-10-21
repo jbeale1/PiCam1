@@ -12,7 +12,7 @@
 # Recommend to increase priority with 'sudo chrt -r -p 99 <pid>' 
 # to reduce variability of process scheduling delays
 #
-# 19 October 2014  J.Beale
+# 21 October 2014  J.Beale
 
 # To install needed Python components do:
 # sudo apt-get install python-picamera python-numpy python-scipy python-imaging
@@ -42,7 +42,8 @@ nGOPs = 4  # (nGOPs * sizeGOP) frames will be in one H264 video segment
 framesLead = 1 # how many frames before end-of-GOP we need to stop analyzing
 mCalcInterval = 2.0/frameRate # seconds in between motion calculations
 settleTime = 12.0 # how many seconds to do averaging before motion detect is valid
-debugMap = False # set 'True' to generate debug motion-bitmap .png files in picDir
+#debugMap = False # set 'True' to generate debug motion-bitmap .png files in picDir
+debugMap = True # set 'True' to generate debug motion-bitmap .png files in picDir
 
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
@@ -60,6 +61,8 @@ running = False  # have we done the initial array processing yet?
 # xsize and ysize are used in the internal motion algorithm, not in the .h264 video output
 xsize = 96 # YUV matrix output horizontal size will be multiple of 32
 ysize = 32 # YUV matrix output vertical size will be multiple of 16
+#xsize = 32 # YUV matrix output horizontal size will be multiple of 32
+#ysize = 16 # YUV matrix output vertical size will be multiple of 16
 pixvalScaleFactor = 65535/255.0  # multiply single-byte values by this factor
 
 # --------------------------------------------------
@@ -150,14 +153,18 @@ def processImage(camera):
 
     if not running:  # first time ever through this function?
       time.sleep(5) # let autoexposure settle
-      newmap = pixvalScaleFactor * getFrame(camera)  # current pixmap  
+      rawmap = getFrame(camera)  # current pixmap  
+      newmap = np.power(rawmap, 2.0)
       stavg = newmap         # call the average over 'stg' elements just the initial frame
       sqavg = np.power(newmap, 2) # initialize sum of squares
       running = True                    # ok, now we're running
       return False
     else:
-      newmap = pixvalScaleFactor * getFrame(camera)  # current pixmap  
+#      newmap = pixvalScaleFactor * getFrame(camera)  # current pixmap  
+      rawmap = getFrame(camera)  # current pixmap  
+      newmap = np.power(rawmap, 2.0)
 
+#    print("raw: %5.3f new: %5.3f" % (rawmap[1,1], newmap[1,1]))
 
     edgeAvg = np.average(newmap * expMask)  # mask out the center rectangle of size [x/2, y/2]
     bkgAvg = np.average(stavg * expMask)
@@ -199,6 +206,10 @@ def processImage(camera):
 
 # if we aren't seeing anything new this frame, adapt background average (stavg, sqavg) normally
 # but if motion, adapt stavg and sqavg more slowly
+
+#    stavgMax = np.amax(stavg)
+#    print("   max = %5.3f" % stavgMax)  # DEBUG: check max value of averaged array
+#    print(stavg)
 
     if (countPixelsA < pixThresh):  
       stavg = stavg + sti * (newmap - stavg)   # rolling avg of most recent 'stg' images (approximately)
