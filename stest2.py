@@ -12,7 +12,7 @@
 # Recommend to increase priority with 'sudo chrt -r -p 99 <pid>' 
 # to reduce variability of process scheduling delays
 #
-# 21 October 2014  J.Beale
+# 22 October 2014  J.Beale
 
 # To install needed Python components do:
 # sudo apt-get install python-picamera python-numpy python-scipy python-imaging
@@ -42,8 +42,8 @@ nGOPs = 4  # (nGOPs * sizeGOP) frames will be in one H264 video segment
 framesLead = 1 # how many frames before end-of-GOP we need to stop analyzing
 mCalcInterval = 2.0/frameRate # seconds in between motion calculations
 settleTime = 12.0 # how many seconds to do averaging before motion detect is valid
-#debugMap = False # set 'True' to generate debug motion-bitmap .png files in picDir
-debugMap = True # set 'True' to generate debug motion-bitmap .png files in picDir
+debugMap = False # set 'True' to generate debug motion-bitmap .png files in picDir
+#debugMap = True # set 'True' to generate debug motion-bitmap .png files in picDir
 
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
