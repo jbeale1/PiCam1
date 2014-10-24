@@ -1,0 +1,20 @@
+#!/bin/bash
+# start up motion-detect processes
+# 2014-10-24 J.Beale
+
+mopidfile='/run/shm/mopid'
+
+# shell script to send files from ramdisk to remote host
+/home/pi/test/push.sh &
+
+# start CPU temperature-logging script
+/home/pi/log/mtemp.sh >> /home/pi/log/tlog.txt &
+
+# start video rec/motion log and make it high priority
+/home/pi/dev/PiCam1/stest2.py &
+mopid=$!
+printf "Motion process run as %s\n" "$mopid"
+sudo -u pi echo $mopid > $mopidfile
+sleep 2
+sudo chrt -r -p 99 $mopid
+sudo renice -20 $mopid

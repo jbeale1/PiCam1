@@ -1,0 +1,3 @@
+sudo killall push.sh
+sudo killall mtemp.sh
+sudo killall stest2.py
