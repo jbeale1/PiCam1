@@ -57,12 +57,15 @@ def saveCrop(fname,geom):
 def saveEvent():
   global eventNow # true when this line part of an event
   global xVec,yVec # x,y matrices for linear fit
+  global avgY # average Y position of event motion center
 
   duration = sec - tStart  # how many seconds long this event was
   if (eFrame > 0):
     avgLength = sumLength / eFrame
+    avgY = sumY / eFrame
   else:
     avgLength = 0
+    avgY = 0
 
   if (eFrame > 1):
     xVec = xVec[0:(eFrame-1)]
@@ -77,14 +80,13 @@ def saveEvent():
     fit0 = 0
 
   if (avgLength > 0):
-    print("Event: %5.1f sec, %5.1f px, %5.1f slope (%4.2f), %d frames at %s" % \
-      (duration, avgLength, slope, fit0, eFrame, dStart))
-    log.write("%6.1f, %6.1f, %6.1f, %6.1f, %4d, %s\n" % \
-      (duration, avgLength, slope, fit0, eFrame, dStart))
+    print("%s, %5.1f sec, %5.1f px, %4.1f Y, %5.1f slope (%4.2f), %d frames" % \
+      (dStart, duration, avgLength, avgY, slope, fit0, eFrame))
+    log.write("%s, %6.1f, %6.1f, %5.1f, %6.1f, %6.1f, %4d\n" % \
+      (dStart, duration, avgLength, avgY, slope, fit0, eFrame))
   eventNow = False
   xVec = np.zeros(120,dtype=np.float32)
   yVec = np.zeros(120,dtype=np.float32)
-
   
 # -----------------------------------------------------
 # process one row in file
@@ -99,30 +101,34 @@ def doRow(row):
   global sumLength # sum of x size of motion
   global xVec  # x,y matrices for linear fit
   global yVec
+  global sumY # sum of Y locations of event motion center
+
   try:
-    v1 = int(row[0])  # how many motion pixels detected
+    pxls = int(row[0])  # how many motion pixels detected
     sec = float(row[1])
     avg = float(row[2])
     xcent = float(row[4])  # x,y center of motion
     ycent = float(row[5])
     dX = xcent - xcentOld
     deltaT = sec - tOld  # time difference between this line and previous one
-    if (eventNow) and ((deltaT > 1.0) or (v1 == 0)):  # end of event
+    if (eventNow) and ((deltaT > 1.0) or (pxls == 0)):  # end of event
       saveEvent()
 
-    if (not eventNow) and (v1 > 0):  # start of an event?
+    if (not eventNow) and (pxls >= pThresh):  # start of an event?
       tStart = sec
       eFrame = -1   # this will be the first frame
       sumLength = 0 # no length yet
+      sumY = 0 # no Y sum yet
       eventNow = True
       try:
 	dStart = row[13]
       except:
         dStart = row[12]
 
-    if (eventNow) and (v1 > 20):  # in event and valid pixel count
+    if (eventNow) and (pxls >= pThresh):  # this frame is in event, and has valid pixel count
       eFrame = eFrame + 1
       sumLength = sumLength + (float(row[9]) - float(row[7]))
+      sumY = sumY + ycent
       xVec[eFrame] = float(row[1]) # time in seconds (offset from t=0 of 30)
       yVec[eFrame] = float(row[4]) # horiz. center position in pixels, 0..96
 
@@ -147,7 +153,7 @@ def doRow(row):
     if sec > 30.0:
       sec = sec - 30.0  # bugfix, should not ever happen
     tOld = sec   # remember this time offset for next line
-    if (v1 > pThresh) and (avg > aThresh) and (abs(dX) > 6) and (float(row[8]) < 20):
+    if (pxls > pThresh) and (avg > aThresh) and (abs(dX) > 6) and (float(row[8]) < 20):
       spos = "+%05.2f" % sec
       fout = fname[:-4] + spos + ".jpg"
       timestr = "%5.3f" % sec
@@ -155,7 +161,7 @@ def doRow(row):
       saveCrop(fout,geom) # extract motion region from still
       xcentOld = xcent # remember this xcenter for next time
   except:
-    v1 = 0
+    pxls = 0
 
 # -----------------------------------------------------
 # test if name looks like '123456_*.txt' if os, extract JPEGs from same-basename .mp4 file
