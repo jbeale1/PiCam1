@@ -1,0 +1,2 @@
+#!/bin/bash
+nice -n 20 scp -c blowfish /ram/*.png pi@192.168.1.56:~/. ; rm /ram/*.png

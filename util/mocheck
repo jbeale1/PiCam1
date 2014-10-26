@@ -1,0 +1,24 @@
+#!/bin/bash
+# If motion process is not running, restart it
+mpidfile='/run/shm/mopid'
+mpexpect='stest2.py'
+
+if [ -e $mpidfile ]; then
+  mpid=`cat $mpidfile`
+  mpname=`ps -p $mpid -o comm=`
+  if [ $mpname == $mpexpect ]; then
+#    echo "Motion process name OK"
+    exit 0
+  fi
+else
+  mpid=-1
+fi
+
+# if we reach here, something is amiss
+date
+echo "Motion PID = $mpid is $mpname ...Restarting motion process"
+
+/home/pi/log/stopmo
+sleep 10
+/home/pi/log/startmo
+

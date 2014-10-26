@@ -1,0 +1,82 @@
+#!/bin/bash
+# Author:    Kevin Reed (Dweeber)
+#            dweeber.dweebs@gmail.com
+# Copyright: Copyright (c) 2012 Kevin Reed <kreed@tnet.com>
+#            https://github.com/dweeber/WiFi_Check
+# Uses a lock file which prevents the script from running more
+# than one at a time.  If lockfile is old, it removes it
+
+# lockfile for this script
+lockfile='/run/shm/LAN_Check.pid'
+# restart / reboot logfile
+logfile='/home/pi/log/Uplog.txt'
+# network interface to check for link
+lan='eth0'
+# Which address to ping for network status
+pingip='192.168.1.254'  
+
+# check, and restart motion process if it has gone missing
+/home/pi/log/mocheck
+
+# Check for lock file (if another copy of this script is already running)
+if [ -e $lockfile ]; then
+    # A lockfile exists... Lets check to see if it is still valid
+    pid=`cat $lockfile`
+    if kill -0 &>1 > /dev/null $pid; then
+        # Still Valid... lets let it be...
+        #echo "Process still running, Lockfile valid"
+        exit 1
+    else
+        # Old Lockfile, Remove it
+        #echo "Old lockfile, Removing Lockfile"
+        sudo rm $lockfile
+    fi
+fi
+# If we get here, set a lock file using our current PID#
+#echo "Setting Lockfile"
+sudo echo $$ > $lockfile
+
+# We can perform check
+#echo "Performing Network check for $lan"
+/bin/ping -c 2 -I $lan $pingip > /dev/null 2> /dev/null
+if [ $? -ge 1 ] ; then
+    echo -n "Network down! IF restart at " 
+    date
+    echo -n "Network down! IF restart at " >> $logfile
+    date >> $logfile
+    sudo /sbin/ifdown $lan
+    sleep 5
+    sudo /sbin/ifup --force $lan
+    sleep 5
+
+    echo "2nd test for $lan"
+    /bin/ping -c 2 -I $lan $pingip > /dev/null 2> /dev/null
+    if [ $? -ge 1 ] ; then
+      echo -n "Network still down!! Retry IF restart at " 
+      date
+      echo -n "Network still down!! Retry IF restart at " >> $logfile
+      date >> $logfile
+      sudo /sbin/ifdown $lan
+      sleep 6
+      sudo /sbin/ifup --force $lan
+      sleep 6
+
+      echo "Final test for $lan"
+      /bin/ping -c 2 -I $lan $pingip > /dev/null 2> /dev/null
+      if [ $? -ge 1 ] ; then
+        echo -n "Network STILL down!! REBOOT at " 
+        date
+        echo -n "Network STILL down!! REBOOT at " >> $logfile
+        date >> $logfile
+        # situation looks bad, time to restart
+        sudo reboot  
+      fi
+    fi
+fi
+
+# Check is complete, Remove Lock file and exit
+rm $lockfile
+exit 0
+
+##################################################################
+# End of Script
