@@ -12,7 +12,7 @@
 # Recommend to increase priority with 'sudo chrt -r -p 99 <pid>' 
 # to reduce variability of process scheduling delays
 #
-# 22 October 2014  J.Beale
+# 26 October 2014  J.Beale
 
 # To install needed Python components do:
 # sudo apt-get install python-picamera python-numpy python-scipy python-imaging
@@ -51,6 +51,7 @@ cYRes = 1080    # camera capture Y resolution
 dFactor = 3.5  # <= MOST CRITICAL PARAMETER 
 stg = 25.0    # groupsize for rolling statistics
 pixThresh = 25  # how many novel pixels counts as an event
+expCompensate = 0 # usually -4 is the right value for sunny days. Maybe 0 when rainy/cloudy
 # --------------------------------------------------
 sti = (1.0/stg) # inverse of statistics groupsize
 sti2 = (1.0/(stg*30)) # smaller updates when motion is detected
@@ -168,6 +169,8 @@ def processImage(camera):
 
     edgeAvg = np.average(newmap * expMask)  # mask out part of the new image 
     bkgAvg = np.average(stavg * expMask)  # mask out part of the background
+    if (edgeAvg < 0.1):   # there will be trouble if edgeAvg == 0
+      edgeAvg = 0.1
     scaleFactor = bkgAvg / edgeAvg  # scale new image by this factor to cancel exposure change
 
     sSmax = np.amax(stavg)  # find maximum value of array
@@ -411,7 +414,7 @@ with picamera.PiCamera() as camera:
     camera.exposure_mode = 'sports'  # faster shuttter reduces blur
 #    camera.meter_mode = 'backlit' # largest central metering region
     camera.meter_mode = 'average' #  mid-sized central metering region(?)
-    camera.exposure_compensation = -4 # slightly darker than default
+    camera.exposure_compensation = expCompensate # usually, slightly darker than default
     camera.annotate_background = True # black rectangle behind white text for readibility
     camera.annotate_text = daytime
 
