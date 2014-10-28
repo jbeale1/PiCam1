@@ -47,6 +47,7 @@ debugMap = False # set 'True' to generate debug motion-bitmap .png files in picD
 
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
+BPS = 12000000  # bits per second from H.264 video encoder
 # dFactor : how many sigma above st.dev for diff value to qualify as motion pixel
 dFactor = 3.5  # <= MOST CRITICAL PARAMETER 
 stg = 25.0    # groupsize for rolling statistics
@@ -418,7 +419,7 @@ with picamera.PiCamera() as camera:
     camera.annotate_background = True # black rectangle behind white text for readibility
     camera.annotate_text = daytime
 
-    for vidFile in camera.record_sequence( date_gen(camera), format='h264'):
+    for vidFile in camera.record_sequence( date_gen(camera), format='h264', bitrate=BPS):
       frameTotal = nGOPs * sizeGOP
       recSec = (1.0 * frameTotal) / frameRate
 #      print("Motion events: %d" % mCount)
