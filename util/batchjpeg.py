@@ -50,7 +50,7 @@ def saveCrop(fname,geom):
 #    print("%s already exists" % fout)
 #  else:
     print("saving detail to: %s" % fout)  
-    call(["convert","-crop",geom,"-resize","300x200",fin,fout])
+    call(["convert","-crop",geom,"-resize","200x166",fin,fout])
 
 # -----------------------------------------------------
 # Save data for an event
