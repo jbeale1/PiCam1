@@ -47,12 +47,12 @@ debugMap = False # set 'True' to generate debug motion-bitmap .png files in picD
 
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
-BPS = 12000000  # bits per second from H.264 video encoder
+BPS = 9000000  # bits per second from H.264 video encoder
 # dFactor : how many sigma above st.dev for diff value to qualify as motion pixel
 dFactor = 3.5  # <= MOST CRITICAL PARAMETER 
 stg = 25.0    # groupsize for rolling statistics
 pixThresh = 25  # how many novel pixels counts as an event
-expCompensate = 0 # usually -4 is the right value for sunny days. Maybe 0 when rainy/cloudy
+expCompensate = -7 # usually -6 is the right value for sunny days. Maybe 0 when rainy/cloudy
 # --------------------------------------------------
 sti = (1.0/stg) # inverse of statistics groupsize
 sti2 = (1.0/(stg*30)) # smaller updates when motion is detected
