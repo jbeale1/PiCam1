@@ -12,7 +12,7 @@
 # Recommend to increase priority with 'sudo chrt -r -p 99 <pid>' 
 # to reduce variability of process scheduling delays
 #
-# 10 December 2014  J.Beale
+# 11 December 2014  J.Beale
 
 # To install needed Python components do:
 # sudo apt-get install python-picamera python-numpy python-scipy python-imaging
@@ -54,10 +54,10 @@ stg = 25.0    # groupsize for rolling statistics
 pixThresh = 25  # how many novel pixels counts as an event
 expCompensate = -7 # usually -6 is the right value for sunny days. Maybe 0 when rainy/cloudy
 
-hBrightMin = 1 # minimum preferred number of brightest pixels (if too few, adjust exposure comp.)
-hBrightMax = 5 # max count brightest pixels (if too many, reduce exposure comp)
+hBrightMin = 1 # minimum preferred number of brightest pixels (if too few, increase exposure comp.)
+hBrightMax = 25 # max count brightest pixels (if too many, reduce exposure comp)
 hBright = (hBrightMin + hBrightMax)/2  # start assuming an OK count of bright pixels
-hBins = 4  # how many bins in histogram
+hBins = 3  # how many bins in histogram
 hist = np.zeros(hBins)  # starting dummy histogram
 
 # --------------------------------------------------
