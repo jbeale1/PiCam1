@@ -12,7 +12,7 @@
 # Recommend to increase priority with 'sudo chrt -r -p 99 <pid>' 
 # to reduce variability of process scheduling delays
 #
-# 26 October 2014  J.Beale
+# 11 December 2014  J.Beale
 
 # To install needed Python components do:
 # sudo apt-get install python-picamera python-numpy python-scipy python-imaging
@@ -47,12 +47,19 @@ debugMap = False # set 'True' to generate debug motion-bitmap .png files in picD
 
 cXRes = 1920   # camera capture X resolution (video file res)
 cYRes = 1080    # camera capture Y resolution
-BPS = 12000000  # bits per second from H.264 video encoder
+BPS = 9000000  # bits per second from H.264 video encoder
 # dFactor : how many sigma above st.dev for diff value to qualify as motion pixel
 dFactor = 3.5  # <= MOST CRITICAL PARAMETER 
 stg = 25.0    # groupsize for rolling statistics
 pixThresh = 25  # how many novel pixels counts as an event
-expCompensate = 0 # usually -4 is the right value for sunny days. Maybe 0 when rainy/cloudy
+expCompensate = -7 # usually -6 is the right value for sunny days. Maybe 0 when rainy/cloudy
+
+hBrightMin = 1 # minimum preferred number of brightest pixels (if too few, increase exposure comp.)
+hBrightMax = 25 # max count brightest pixels (if too many, reduce exposure comp)
+hBright = (hBrightMin + hBrightMax)/2  # start assuming an OK count of bright pixels
+hBins = 3  # how many bins in histogram
+hist = np.zeros(hBins)  # starting dummy histogram
+
 # --------------------------------------------------
 sti = (1.0/stg) # inverse of statistics groupsize
 sti2 = (1.0/(stg*30)) # smaller updates when motion is detected
@@ -152,6 +159,9 @@ def processImage(camera):
     global scaleFactor # factor by which new frame differs from background
     global x0,y0,x1,y1  # coordinates of bounding box
     global sSmax, sSmin # maximum and minimum values of average background
+    global expCompensate # exposure compensation parameter for MMAL camera
+    global hBright  # running average count of brightest pixels
+    global hist # brightness histogram of raw image
 
     if not running:  # first time ever through this function?
       time.sleep(5) # let autoexposure settle
@@ -167,6 +177,9 @@ def processImage(camera):
       newmap = np.power(rawmap, 2.0)
 
 #    print("raw: %5.3f new: %5.3f" % (rawmap[1,1], newmap[1,1]))
+    hist,bin_edges = np.histogram(rawmap, bins=hBins, range=(0,255))  # find histogram of image data in range [0..255]
+    hBright = (hBright * 0.95) + (0.05*hist[hBins-1])  # running average of largest histogram bin (brightest pixels)
+
 
     edgeAvg = np.average(newmap * expMask)  # mask out part of the new image 
     bkgAvg = np.average(stavg * expMask)  # mask out part of the background
@@ -174,8 +187,8 @@ def processImage(camera):
       edgeAvg = 0.1
     scaleFactor = bkgAvg / edgeAvg  # scale new image by this factor to cancel exposure change
 
-    sSmax = np.amax(stavg)  # find maximum value of array
-    sSmin = np.amin(stavg)  # find minimum value of array
+    sSmax = np.amax(rawmap)  # find maximum value of array (DEBUG: was stavg)
+    sSmin = np.amin(rawmap)  # find minimum value of array (DEBUG: was stavg)
 
 #    print("SF: %5.3f" % scaleFactor) # DEBUG check what the scale factor is
     if (scaleFactor < 0.33):
@@ -288,9 +301,30 @@ def processImage(camera):
 # -- END processImage()    
   
 # -------------------------------------------------------------------------
+# adjust exposure compensation for brightness of image to be reasonable
+# (that is, just a few pixels reach into the top 20% of brightness)
+
+def adjBright(camera):
+
+    global hBright  # running average count of brightest pixels
+    global expCompensate  # exposure compensation value
+    global hist # histogram
+
+    if (hBright < hBrightMin):
+      expCompensate += 1
+    if (hBright > hBrightMax):
+      expCompensate -= 1
+    if (expCompensate > 0):
+      expCompensate = 0   # don't let things get brighter than default
+    if (expCompensate < -8):
+      expCompensate = -8  # don't let things get too dark, either
+    # print(hist)
+    # print("hBright = %4.1f, exp: %d" % (hBright, expCompensate))
+    camera.exposure_compensation = expCompensate # update camera exposure compensation
+
+
+# -------------------------------------------------------------------------
 # the 'write()' member of this class is called whenever a buffer of image data is ready
-
-
 
 class MyCustomOutput(object):
 
@@ -431,6 +465,8 @@ with picamera.PiCamera() as camera:
 	log.close()
       log = open(logFileName, 'w')       # open logfile for new video file
 
+      adjBright(camera) # update exposure compensation every pass (30 second intervals)
+
       okGo = True # ok to start analyzing again
       while (okGo == True):  # write callback turns off 'okGo' near end of final GOP
 	tLoop = time.time()
@@ -448,14 +484,14 @@ with picamera.PiCamera() as camera:
         pixThreshEff = 1.0*pixThresh * pSF # effective pixel threshold
         avgNovel = min(avgNovel,9999) # just for output formatting, so it will use at most 4 characters
 	if (lastCP > 0) or (countPixels >= (pixThreshEff)):
-          print("%4d, %6.3f, %4d, %6.3f, %4.1f,%4.1f, %4.1f, %2d,%2d, %2d,%2d, %5.1f,%5.1f, %s" % \
+          print("%4d, %6.3f, %4d, %6.3f, %4.1f,%4.1f, %4.1f, %2d,%2d, %2d,%2d, %5.1f,%5.1f, %d,%s" % \
 	    (countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, \
-             xcent, ycent, pixThreshEff, x0,y0, x1,y1, sSmin,sSmax, daytime))
+             xcent, ycent, pixThreshEff, x0,y0, x1,y1, sSmin,sSmax, expCompensate, daytime))
 #         print("%5.3f" % scaleFactor) # DEBUG check what the scale factor is
 	if (not log.closed) and ( (lastCP > 0) or (countPixels >= (pixThreshEff))):
-          log.write("%4d, %6.3f, %4d, %6.3f, %4.1f,%4.1f, %4.1f, %2d,%2d, %2d,%2d, %5.1f,%5.1f, %s\n" % \
+          log.write("%4d, %6.3f, %4d, %6.3f, %4.1f,%4.1f, %4.1f, %2d,%2d, %2d,%2d, %5.1f,%5.1f, %d,%s\n" % \
 	    (countPixels, (1.0*segFrameNumber)/frameRate, avgNovel, tRemain, \
-             xcent, ycent, scaleFactor, x0,y0, x1,y1, sSmin,sSmax, daytime))
+             xcent, ycent, scaleFactor, x0,y0, x1,y1, sSmin,sSmax, expCompensate, daytime))
           lastCP = countPixels  # remember the previous countPixels value
         if (tRemain > 0):
           time.sleep(tRemain) # delay in between motion calculations
