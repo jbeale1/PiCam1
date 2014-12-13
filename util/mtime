@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# return age of directory in days, assuming 1 day = 24 hours
+# copied from that useful source, stackoverflow.com
+
+filemtime=`stat -c %Y $1`
+currtime=`date +%s`
+diff=$(( (currtime - filemtime) / 86400 ))
+echo $diff

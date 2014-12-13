@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# clean out "empty" (no detected motion) video files in every directory older than X days
+
+for d in /media/sdb1/v*/ ; do
+  age=$(mtime $d)
+  if (( $age > 8 ))
+   then
+    echo -n "$d "
+    echo $age
+    /home/user/dev/PiCam1/util/cleanblank.py $d
+   fi
+done
