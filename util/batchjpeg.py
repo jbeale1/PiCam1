@@ -12,6 +12,7 @@
 # 18-Oct-14: Ignore motion below a lower boundary, and below a certain L-R (x) speed
 #
 # J.Beale 20-October-2014
+# fixes 27-December-2014
 
 from __future__ import print_function
 import csv, os, sys, time
@@ -28,6 +29,7 @@ xScale = 1920.0 / 96.0  # scale up X by this
 yScale = 1080.0 / 32.0  # scale up Y by this
 xEdge = 200 # expand motion area border by this many pixels
 yEdge = 150
+dStart = "" # time/date string from file
 
 # ==================================================
 
@@ -80,10 +82,10 @@ def saveEvent():
     fit0 = 0
 
   if (avgLength > 0):
-    print("%s, %5.1f sec, %5.1f px, %4.1f Y, %5.1f slope (%4.2f), %d frames" % \
-      (dStart, duration, avgLength, avgY, slope, fit0, eFrame))
-    log.write("%s, %6.1f, %6.1f, %5.1f, %6.1f, %6.1f, %4d\n" % \
-      (dStart, duration, avgLength, avgY, slope, fit0, eFrame))
+    print("%4.1f, %5.1f sec, %5.1f px, %4.1f Y, %5.1f slope (%4.2f), %d frames, %s" % \
+      (tStart, duration, avgLength, avgY, slope, fit0, eFrame, dStart))
+    log.write("%4.1f, %6.1f, %6.1f, %5.1f, %6.1f, %6.1f, %4d, %s\n" % \
+      (tStart, duration, avgLength, avgY, slope, fit0, eFrame, dStart))
   eventNow = False
   xVec = np.zeros(120,dtype=np.float32)
   yVec = np.zeros(120,dtype=np.float32)
@@ -102,6 +104,7 @@ def doRow(row):
   global xVec  # x,y matrices for linear fit
   global yVec
   global sumY # sum of Y locations of event motion center
+#  global dateStr # time/date string from file
 
   try:
     pxls = int(row[0])  # how many motion pixels detected
@@ -121,9 +124,9 @@ def doRow(row):
       sumY = 0 # no Y sum yet
       eventNow = True
       try:
-	dStart = row[13]
+	dStart = row[14]
       except:
-        dStart = row[12]
+        dStart = row[13]
 
     if (eventNow) and (pxls >= pThresh):  # this frame is in event, and has valid pixel count
       eFrame = eFrame + 1
