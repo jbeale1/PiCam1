@@ -1,0 +1,20 @@
+#!/bin/sh -e
+#
+# rc.local
+
+# Print the IP address
+_IP=$(hostname -I) || true
+if [ "$_IP" ]; then
+  printf "My IP address is %s\n" "$_IP"
+fi
+
+# employ traffic shaping to limit peak CPU usage (not really necessary)
+# sudo tc qdisc add dev eth0 root tbf rate 35mbit burst 10kb latency 70ms peakrate 40mbit minburst 1540
+
+# if warm reboot, make sure no stale PID left over from before
+sudo rm /run/shm/mopid
+
+# start video record / motion log process and make it high priority
+sudo -u pi /home/pi/log/startmo &
+
+exit 0
