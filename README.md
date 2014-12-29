@@ -26,6 +26,7 @@ sudo tc qdisc add dev eth0 root tbf rate 20mbit burst 10kb latency 70ms peakrate
 
 I found this to be unneccesary, after I set the main PiMotion.py (or testing version stest2.py) process 
 to run at maximum priority using the util/startmo script.
+
 ===
 
 "proc.sh" and "batchjpeg.py" run together on the remote host, in the directory where the files are. 
