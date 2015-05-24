@@ -52,7 +52,9 @@ BPS = 9000000  # bits per second from H.264 video encoder
 dFactor = 3.5  # <= MOST CRITICAL PARAMETER 
 stg = 25.0    # groupsize for rolling statistics
 pixThresh = 25  # how many novel pixels counts as an event
-expCompensate = -7 # usually -6 is the right value for sunny days. Maybe 0 when rainy/cloudy
+#expCompensate = -7 # usually -6 is the right value for sunny days. Maybe 0 when rainy/cloudy
+expCompensate = 0 # usually -6 is the right value for sunny days. Maybe 0 when rainy/cloudy
+expCompMin = 0 # previously -8
 
 hBrightMin = 1 # minimum preferred number of brightest pixels (if too few, increase exposure comp.)
 hBrightMax = 25 # max count brightest pixels (if too many, reduce exposure comp)
@@ -316,8 +318,8 @@ def adjBright(camera):
       expCompensate -= 1
     if (expCompensate > 0):
       expCompensate = 0   # don't let things get brighter than default
-    if (expCompensate < -8):
-      expCompensate = -8  # don't let things get too dark, either
+    if (expCompensate < expCompMin):
+      expCompensate = expCompMin  # don't let things get too dark, either
     # print(hist)
     # print("hBright = %4.1f, exp: %d" % (hBright, expCompensate))
     camera.exposure_compensation = expCompensate # update camera exposure compensation
