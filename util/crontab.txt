@@ -1,0 +1,12 @@
+# crontab commands on remote machine (Acer C720 / Ubuntu x64)
+# m h  dom mon dow   command
+
+# archive all of yesterday's video & events into sub-directories at 12:15 am
+15 0 * * * /media/sdb1/doyesterday.py
+
+# thin out and remove old video files to maintain total disk space usage
+35 0 * * * /media/sdb1/dolastweek.py
+
+# crontab command on R-Pi running camera: check network connectivity every minute
+
+* * * * * /home/pi/log/upcheck

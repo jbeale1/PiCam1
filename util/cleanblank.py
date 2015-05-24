@@ -25,8 +25,8 @@ def scanFiles(workDir, fname):
       # print("   remove %s and %s" % (ffname, vidfile))
       os.remove(ffname)
       os.remove(vidfile)
-    else:
-      print("file: %s size: %d" % (ffname,fsize))
+#    else:
+#      print("file: %s size: %d" % (ffname,fsize), end="")
 
 # -----------------------------------------------------
 # == MAIN program here ==
