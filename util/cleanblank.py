@@ -23,8 +23,11 @@ def scanFiles(workDir, fname):
     if (fsize == 0):
       # delete fname, vidfile
       # print("   remove %s and %s" % (ffname, vidfile))
-      os.remove(ffname)
-      os.remove(vidfile)
+      try:
+        os.remove(ffname)
+        os.remove(vidfile)
+      except (OSError):
+        print("%s %s not found" % (ffname, vidfile))
 #    else:
 #      print("file: %s size: %d" % (ffname,fsize), end="")
 
