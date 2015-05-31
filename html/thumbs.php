@@ -1,8 +1,14 @@
 <?php
 //  from http://webcheatsheet.com/php/create_thumbnail_images.php
+//  and http://php.net/manual/en/function.disk-total-space.php
 
 function createThumbs( $pathToImages, $pathToThumbs, $thumbWidth )
 {
+
+  $df = disk_free_space("/media/sdb1");
+  $dt = disk_total_space("/media/sdb1");
+  $du = $dt - $df;
+  $dp = sprintf('%.2f', ($du / $dt) * 100); // percent disk space used
   echo "working on ";
   // open the directory
   $dir = opendir( $pathToImages );
@@ -22,7 +28,9 @@ function createThumbs( $pathToImages, $pathToThumbs, $thumbWidth )
       $count = $count + 1;
     }
   }
-  echo "{$count} images...<br />";
+  echo "{$count} images... ";
+  echo "disk: {$dp}%  <br />";
+
   // close the directory
   closedir( $dir );
   sort($a);  // sorts the array of filenames in-place
@@ -54,7 +62,9 @@ function createThumbs( $pathToImages, $pathToThumbs, $thumbWidth )
   }
   echo "Done! <br />";
   echo "<a href=\"g2.php\" > Create 200-img gallery</a> &nbsp; ";
-  echo "<a href=\"gallery.php\" > Create full gallery</a>";
+  echo "<a href=\"gallery.php\" > Create full gallery</a> <br>";
+
+
 } // end function createThumbs()
 
 // call createThumb function and pass to it as parameters the path
