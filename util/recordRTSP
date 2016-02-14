@@ -4,6 +4,13 @@
 # record segments of 3MP RTSP H.264 stream into stdout in .mp4 format files
 # using openRTSP from  http://www.live555.com/openRTSP/#source-code
 
+# start at boot time: add to /etc/rc.local  
+# (sudo -u user /usr/local/bin/recordRTSP) &
+
+# restart every midnight from "user" crontab:
+# 0 0 * * * killall recordRTSP openRTSP; /usr/local/bin/recordRTSP
+
+
 VIDEO_DIR="/media/sdb1/CAM0"
 STREAM="rtsp://192.168.1.50/0"
 SEG=300     # how many seconds long each mp4 file is
