@@ -19,10 +19,13 @@ To make the 128MB ramdisk (on a 512MB Pi) I added this line to /etc/fstab:
 
 'tmpfs           /ram            tmpfs   rw,size=128M      0       0'
 
-When a .h264 file is transferred it uses a large fraction of CPU. I am not sure if that is a problem or not, but 
-to be safe I rate-limited the ethernet speed and reduced peak CPU% by adding this line to /etc/rc.local:
+When a .h264 file is transferred it uses a large fraction of CPU. If that is a problem,
+you can rate-limit the ethernet speed and reduced peak CPU% by adding this line to /etc/rc.local:
 
 sudo tc qdisc add dev eth0 root tbf rate 20mbit burst 10kb latency 70ms peakrate 30mbit minburst 1540
+
+I found this to be unneccesary, after I set the main PiMotion.py (or testing version stest2.py) process 
+to run at maximum priority using the util/startmo script.
 
 ===
 
@@ -43,7 +46,8 @@ I originally tried this with the Pi simply writing to a remote folder via NFS, b
 It may have been delays or buffering issues through the NFS system but the PiMotion video writer would frequently lock up.
 Writing from the camera to the ramdisk, where a separate process reads them off, works more reliably.
 
-This code is still in "alpha" phase. It has only been tested in one configuration on one system so far.  
+This code is "beta" phase. It has only been tested in one configuration on one system, but has been running 24/7
+apart from occasional exposure-setting tweaks for over a month now, without problems.
 If you install it, you will need to configure the code to suit your setup.
 
--J. Beale 11 October 2014
+-J. Beale 11 Oct / 29 Dec 2014

@@ -1,0 +1,3 @@
+#!/bin/bash
+tail -1000 /media/sdb1/logs/eLog.csv | awk -F "\"*,\"*" '{print "motion123_"$8}' - | grep `date +"%y%m%d"`
+
