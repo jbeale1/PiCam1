@@ -1,0 +1,20 @@
+#!/bin/bash
+# recordRTSP  :   bash script to record rtsp video stream from IP camera
+
+# record segments of 3MP RTSP H.264 stream into stdout in .mp4 format files
+# using openRTSP from  http://www.live555.com/openRTSP/#source-code
+
+VIDEO_DIR="/media/sdb1/CAM0"
+STREAM="rtsp://192.168.1.50/0"
+SEG=300     # how many seconds long each mp4 file is
+
+# 1 day = 1440 minutes = 86400 seconds
+# 1 day = 288 intervals of 5 minutes
+
+#cd $VIDEO_DIR
+
+for i in `seq 1 289`;
+do
+  TD=$(date +"%Y%m%d-%H%M%S")  # current time and date as YYYYMMDD-HHMMSS
+  openRTSP -B 900000 -b 900000 -4 -w 2048 -h 1536 -f 15 -d $SEG $STREAM > $VIDEO_DIR/$TD.mp4
+done
