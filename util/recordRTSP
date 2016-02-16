@@ -8,7 +8,7 @@
 # (sudo -u user /usr/local/bin/recordRTSP) &
 
 # restart every midnight from "user" crontab:
-# 0 0 * * * killall recordRTSP openRTSP; /usr/local/bin/recordRTSP
+# 0 0 * * * /usr/local/bin/recordRTSP
 
 
 VIDEO_DIR="/media/sdb1/CAM0"
