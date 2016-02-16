@@ -13,6 +13,8 @@
 
 VIDEO_DIR="/media/sdb1/CAM0"
 STREAM="rtsp://192.168.1.50/0"
+PIDLOC="/home/user/recordRTSPpid"
+P2="/home/user/openRTSPpid"
 SEG=300     # how many seconds long each mp4 file is
 
 # 1 day = 1440 minutes = 86400 seconds
@@ -20,8 +22,14 @@ SEG=300     # how many seconds long each mp4 file is
 
 #cd $VIDEO_DIR
 
+kill `$PIDLOC`   # remove previous processes if running
+echo $$ > $PIDLOC    # store process ID for future control of process
+
 for i in `seq 1 289`;
 do
   TD=$(date +"%Y%m%d-%H%M%S")  # current time and date as YYYYMMDD-HHMMSS
-  openRTSP -B 900000 -b 900000 -4 -w 2048 -h 1536 -f 15 -d $SEG $STREAM > $VIDEO_DIR/$TD.mp4
+  kill `$P2`
+  openRTSP -B 900000 -b 900000 -4 -w 2048 -h 1536 -f 15 -d $SEG $STREAM > $VIDEO_DIR/$TD.mp4 &
+  echo $! > $P2
+  sleep $SEG
 done
