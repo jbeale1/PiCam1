@@ -26,7 +26,7 @@ SEG=300     # how many seconds long each mp4 file is
 RPID=$(<"$PIDLOC")    # PID of previous recordRTSP process
 
 if [[ $( ps -o pid= -p $RPID  ) ]]; then
-     kill -2 $RPID   # remove previous process if it is running
+     kill -s SIGHUP $RPID    # stop process if running. (SIGHUP preserves .mp4 integrity)
 fi
 
 echo $$ > $PIDLOC    # store process ID for future control of process
@@ -36,7 +36,7 @@ do
   TD=$(date +"%Y%m%d-%H%M%S")  # current time and date as YYYYMMDD-HHMMSS
   OPID=$(<"$P2")    # get PID of previous openRTSP process
   if [[ $( ps -o pid= -p $OPID  ) ]]; then   # if it's still extant, get rid of it
-    kill -2 $OPID
+    kill -s SIGHUP $OPID
   fi
   openRTSP -B 1200000 -b 1200000 -4 -w 2048 -h 1536 -f 15 -d $SEG $STREAM > $VIDEO_DIR/$TD.mp4 &
   echo $! > $P2
