@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# recordRTSP  :   bash script to record rtsp video stream from IP camera
+# record segments of RTSP H.264 stream into stdout in .mp4 format files
+# This uses openRTSP from  http://www.live555.com/openRTSP/#source-code
+
+# Note: if recording process is terminated unexpectedly, "moov atom" containing
+# index info will be missing from end of file, and .mp4 file will not be playable
+# However kill -s SIGHUP <pid> will cause a graceful exit with playable .mp4 file
+
+# start at boot time: add to /etc/rc.local  
+# (sudo -u user /usr/local/bin/recordRTSP) &
+
+# restart every midnight from "user" crontab:
+# 0 0 * * * /usr/local/bin/recordRTSP
+
+
+VIDEO_DIR="/media/t2/CAM1"
+#VIDEO_DIR="/media/sdb1/CAM1"      # where to record video files
+#STREAM="rtsp://admin:123456@192.168.1.78:554/mpeg4"
+STREAM="rtsp://admin:123456@192.168.1.83:554/mpeg4"
+# STREAM="rtsp://192.168.1.50/0"    # full-res stream from one particular IP camera
+
+PIDLOC="/home/user/IP_RTSPpid" # where to remember PID of this process
+RCMD="/usr/local/bin/openRTSP"  # full pathname of record command (so crontab works)
+P2="/home/user/openRTSPpid_2"
+
+SEG=300     # how many seconds long each mp4 file will be
+
+# 1 day = 1440 minutes = 86400 seconds
+# 1 day = 288 intervals of 5 minutes
+
+RPID=$(<"$PIDLOC")    # PID of previous recordRTSP process
+
+if [[ $( ps -o pid= -p $RPID  ) ]]; then
+     kill -s SIGHUP $RPID    # stop process if running. (SIGHUP preserves .mp4 integrity)
+fi
+
+echo $$ > $PIDLOC    # store process ID for future control of process
+
+while true;          # loop forever
+do
+  TD=$(date +"%Y%m%d-%H%M%S")  # current time and date as YYYYMMDD-HHMMSS
+  OPID=$(<"$P2")    # read saved PID from previous openRTSP process
+  if [[ $( ps -o pid= -p $OPID  ) ]]; then   # if it's still running, stop it
+    kill -s SIGHUP $OPID
+  fi
+
+  # -v means video only, eg. discard any audio track  -V means less verbose debug output
+  $RCMD -B 1500000 -b 1500000 -v -4 -w 2592 -h 1920 -f 10 -d $SEG $STREAM > $VIDEO_DIR/$TD.mp4 &
+  echo $! > $P2   # save PID of current openRTSP instance
+  wait $!  # wait for recording complete; should be $SEG seconds unless it is SIGHUP'd
+done
